@@ -13,10 +13,11 @@ import inspect
 from datetime import timedelta
 
 from homeassistant.components.climate import (ClimateDevice, PLATFORM_SCHEMA, SUPPORT_TARGET_TEMPERATURE,
-                                                             ATTR_TEMPERATURE,
-                                                             SUPPORT_OPERATION_MODE,SUPPORT_ON_OFF)
+                                              ATTR_TEMPERATURE,
+                                              SUPPORT_OPERATION_MODE, SUPPORT_ON_OFF)
 
-from homeassistant.const import (ATTR_TEMPERATURE,ATTR_UNIT_OF_MEASUREMENT,CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE)
+from homeassistant.const import (ATTR_TEMPERATURE, ATTR_UNIT_OF_MEASUREMENT,
+                                 CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE)
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
@@ -28,14 +29,14 @@ CONF_TARGET_TEMP = 'target_temp_default'
 CONF_TARGET_TEMP_STEP = 'target_temp_step'
 CONF_OPERATIONS = 'operations'
 
-STATE_IDLE =  "off"
+STATE_IDLE = "off"
 STATE_HEAT = "heat"
 STATE_AUTO = "auto"
 
-HYSEN_POWERON    = 1
-HYSEN_POWEROFF   = 0
+HYSEN_POWERON = 1
+HYSEN_POWEROFF = 0
 HYSEN_MANUALMODE = 0
-HYSEN_AUTOMODE   = 1
+HYSEN_AUTOMODE = 1
 
 DEFAULT_NAME = 'Broadlink Hysen Climate'
 DEFAULT_TIMEOUT = 10
@@ -49,41 +50,45 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
     vol.Required(CONF_HOST): cv.string,
     vol.Required(CONF_MAC): cv.string,
-    vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int, 
+    vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP_STEP, default=DEFAULT_TARGET_TEMP_STEP): cv.positive_int,
 })
+
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     """Set up the Broadlink Hysen Climate platform."""
     name = config.get(CONF_NAME)
     ip_addr = config.get(CONF_HOST)
-    mac_addr = binascii.unhexlify(config.get(CONF_MAC).encode().replace(b':', b''))
+    mac_addr = binascii.unhexlify(config.get(
+        CONF_MAC).encode().replace(b':', b''))
     target_temp_default = config.get(CONF_TARGET_TEMP)
     target_temp_step = config.get(CONF_TARGET_TEMP_STEP)
-    operation_list =  DEFAULT_OPERATION_LIST
-    
+    operation_list = DEFAULT_OPERATION_LIST
+
     import broadlink
-    
+
     broadlink_device = broadlink.hysen((ip_addr, 80), mac_addr, None)
     broadlink_device.timeout = config.get(CONF_TIMEOUT)
 
     try:
         broadlink_device.auth()
         add_devices([
-                    BroadlinkHysenClimate(hass, name, broadlink_device, target_temp_default, target_temp_step, operation_list)
+                    BroadlinkHysenClimate(
+                        hass, name, broadlink_device, target_temp_default, target_temp_step, operation_list)
                     ])
     except socket.timeout:
-        _LOGGER.error("Failed to connect to Broadlink Hysen Device IP:%s",ip_addr)
+        _LOGGER.error(
+            "Failed to connect to Broadlink Hysen Device IP:%s", ip_addr)
 
 
 class BroadlinkHysenClimate(ClimateDevice):
 
-    def __init__(self, hass, name, broadlink_device,target_temp_default, target_temp_step, operation_list):
+    def __init__(self, hass, name, broadlink_device, target_temp_default, target_temp_step, operation_list):
         """Initialize the Broadlink Hysen Climate device."""
         self.hass = hass
         self._name = name
-        self.HysenData = []        
+        self.HysenData = []
         self._broadlink_device = broadlink_device
 
         self._target_temperature = target_temp_default
@@ -92,13 +97,13 @@ class BroadlinkHysenClimate(ClimateDevice):
 
         self._min_temp = 0
         self._max_temp = 0
-        self._current_temperature = 0        
-        self._power_state = HYSEN_POWEROFF        #On = 1  #Off = 0
-        self._auto_state = HYSEN_MANUALMODE       #Manual =0   #Auto, =1
-        self._current_operation = STATE_IDLE      
+        self._current_temperature = 0
+        self._power_state = HYSEN_POWEROFF  # On = 1  #Off = 0
+        self._auto_state = HYSEN_MANUALMODE  # Manual =0   #Auto, =1
+        self._current_operation = STATE_IDLE
         self._operation_list = operation_list
-        self._loop_mode = 0                       #12345,67 = 1   123456,7 = 2  1234567 = 3        
-        self._is_heating_active = 0               #Demand = 1, No Demand = 0
+        self._loop_mode = 0  # 12345,67 = 1   123456,7 = 2  1234567 = 3
+        self._is_heating_active = 0  # Demand = 1, No Demand = 0
 
         self.remote_lock = 0
         self.auto_override = 0
@@ -115,7 +120,6 @@ class BroadlinkHysenClimate(ClimateDevice):
         self.day_of_week = 0
         self.week_day = 0
         self.week_end = 0
-
 
         self.update()
 
@@ -138,22 +142,22 @@ class BroadlinkHysenClimate(ClimateDevice):
     def current_temperature(self):
         """Return the current temperature."""
         return self._current_temperature
-        
+
     @property
     def min_temp(self):
         """Return the polling state."""
         return self._min_temp
-        
+
     @property
     def max_temp(self):
         """Return the polling state."""
-        return self._max_temp    
-        
+        return self._max_temp
+
     @property
     def target_temperature(self):
         """Return the temperature we try to reach."""
         return self._target_temperature
-        
+
     @property
     def target_temperature_step(self):
         """Return the supported step of target temperature."""
@@ -168,11 +172,11 @@ class BroadlinkHysenClimate(ClimateDevice):
     def operation_list(self):
         """Return the list of available operation modes."""
         return self._operation_list
-        
+
     @property
     def supported_features(self):
         """Return the list of supported features."""
-        return SUPPORT_FLAGS        
+        return SUPPORT_FLAGS
 
     @property
     def device_state_attributes(self):
@@ -189,7 +193,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         attr['roomtemp_offset'] = self.roomtemp_offset
         attr['anti_freeze_function'] = self.anti_freeze_function
         attr['poweron_mem'] = self.poweron_mem
-        attr['external_temp'] =  self.external_temp
+        attr['external_temp'] = self.external_temp
         attr['clock_hour'] = self.clock_hour
         attr['clock_min'] = self.clock_min
         attr['clock_sec'] = self.clock_sec
@@ -197,14 +201,15 @@ class BroadlinkHysenClimate(ClimateDevice):
         attr['week_day'] = self.week_day
         attr['week_end'] = self.week_end
         return attr
+
     @property
     def is_on(self):
         """Return the list of available operation modes."""
-        if self._power_state == HYSEN_POWERON :
+        if self._power_state == HYSEN_POWERON:
             return True
         else:
             return False
-    
+
     def turn_on(self):
         self._broadlink_device.set_power(HYSEN_POWERON)
         return True
@@ -227,7 +232,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         self.set_operation_mode_command(operation_mode)
         self.schedule_update_ha_state()
 
-    def send_tempset_command(self,target_temperature):
+    def send_tempset_command(self, target_temperature):
         for retry in range(DEFAULT_RETRY):
           try:
              self._broadlink_device.set_temp(target_temperature)
@@ -237,9 +242,10 @@ class BroadlinkHysenClimate(ClimateDevice):
                   self._broadlink_device.auth()
                except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
-                       _LOGGER.error("Failed to send SetTemp command to Broadlink Hysen Device")        
+                       _LOGGER.error(
+                           "Failed to send SetTemp command to Broadlink Hysen Device")
 
-    def send_power_command(self,target_state):
+    def send_power_command(self, target_state):
         for retry in range(DEFAULT_RETRY):
             try:
                 self._broadlink_device.set_power(target_state)
@@ -249,19 +255,21 @@ class BroadlinkHysenClimate(ClimateDevice):
                     self._broadlink_device.auth()
                 except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
-                       _LOGGER.error("Failed to send Power command to Broadlink Hysen Device")
+                       _LOGGER.error(
+                           "Failed to send Power command to Broadlink Hysen Device")
 
-    def send_mode_command(self,target_state,loopmode=1,sensor=0):
+    def send_mode_command(self, target_state, loopmode=1, sensor=0):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_mode(target_state,loopmode,sensor)
+                self._broadlink_device.set_mode(target_state, loopmode, sensor)
                 break
             except (socket.timeout, ValueError):
                 try:
                     self._broadlink_device.auth()
                 except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
-                       _LOGGER.error("Failed to send OpMode-Heat/Manual command to Broadlink Hysen Device")
+                       _LOGGER.error(
+                           "Failed to send OpMode-Heat/Manual command to Broadlink Hysen Device")
 
   # Change controller mode
   # auto_mode = 1 for auto (scheduled/timed) mode, 0 for manual mode.
@@ -269,34 +277,35 @@ class BroadlinkHysenClimate(ClimateDevice):
   # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ]
   # E.g. loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule
   # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
-    def set_operation_mode_command(self,operation_mode):
+    def set_operation_mode_command(self, operation_mode):
         if operation_mode == STATE_HEAT:
                if self._power_state == HYSEN_POWEROFF:
                   self.send_power_command(HYSEN_POWERON)
-               self.send_mode_command(HYSEN_MANUALMODE,self._loop_mode)
+               self.send_mode_command(HYSEN_MANUALMODE, self._loop_mode)
         elif operation_mode == STATE_AUTO:
                if self._power_state == HYSEN_POWEROFF:
                   self.send_power_command(HYSEN_POWERON)
-               self.send_mode_command(HYSEN_AUTOMODE,self._loop_mode)
+               self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode)
         else:
           _LOGGER.error("Unknown command for Broadlink Hysen Device")
           return
 
-
     # set time on device
     # n.b. day=1 is Monday, ..., day=7 is Sunday
+
     def set_time(self, hour, minute, second, day):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_time(self, hour, minute, second, day)
+                self._broadlink_device.set_time(
+                    self, hour, minute, second, day)
                 break
             except (socket.timeout, ValueError):
                 try:
                     self._broadlink_device.auth()
                 except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
-                       _LOGGER.error("Failed to send Set Time command to Broadlink Hysen Device")
-
+                       _LOGGER.error(
+                           "Failed to send Set Time command to Broadlink Hysen Device")
 
     # Advanced settings
     # Sensor mode (SEN) sensor = 0 for internal sensor, 1 for external sensor, 2 for internal control temperature, external limit temperature. Factory default: 0.
@@ -310,6 +319,7 @@ class BroadlinkHysenClimate(ClimateDevice):
     # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ]
     # E.g. loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule
     # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
+
     def set_advanced(self, loop_mode=None, sensor=None, osv=None, dif=None,
                      svh=None, svl=None, adj=None, fre=None, poweron=None):
         loop_mode = self._loop_mode if loop_mode is None else loop_mode
@@ -324,14 +334,16 @@ class BroadlinkHysenClimate(ClimateDevice):
 
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_advanced(self, loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweron)
+                self._broadlink_device.set_advanced(
+                    self, loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweron)
                 break
             except (socket.timeout, ValueError):
                 try:
                     self._broadlink_device.auth()
                 except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
-                       _LOGGER.error("Failed to send Set Advanced to Broadlink Hysen Device")
+                       _LOGGER.error(
+                           "Failed to send Set Advanced to Broadlink Hysen Device")
 
     # Set timer schedule
     # Format is the same as you get from get_full_status.
@@ -339,29 +351,32 @@ class BroadlinkHysenClimate(ClimateDevice):
     # {'start_hour':17, 'start_minute':30, 'temp': 22 }
     # Each one specifies the thermostat temp that will become effective at start_hour:start_minute
     # weekend is similar but only has 2 (e.g. switch on in morning and off in afternoon)
-    def set_schedule(self,weekday,weekend):
+    def set_schedule(self, weekday, weekend):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_schedule(self,weekday,weekend)
+                self._broadlink_device.set_schedule(self, weekday, weekend)
                 break
             except (socket.timeout, ValueError):
                 try:
                     self._broadlink_device.auth()
                 except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
-                       _LOGGER.error("Failed to send Set Advanced to Broadlink Hysen Device")
+                       _LOGGER.error(
+                           "Failed to send Set Advanced to Broadlink Hysen Device")
 
-    def set_lock(self,remote_lock):
+    def set_lock(self, remote_lock):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_power(self, self._power_state, remote_lock=0)
+                self._broadlink_device.set_power(
+                    self, self._power_state, remote_lock=0)
                 break
             except (socket.timeout, ValueError):
                 try:
                     self._broadlink_device.auth()
                 except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
-                       _LOGGER.error("Failed to send Set Lock to Broadlink Hysen Device")
+                       _LOGGER.error(
+                           "Failed to send Set Lock to Broadlink Hysen Device")
 
     def update(self):
         """Get the latest data from the sensor."""
@@ -394,7 +409,7 @@ class BroadlinkHysenClimate(ClimateDevice):
                  self.week_day = self.HysenData['weekday']
                  self.week_end = self.HysenData['weekend']
 
-                 if self._power_state == HYSEN_POWERON :
+                 if self._power_state == HYSEN_POWERON:
                     if self._auto_state == HYSEN_AUTOMODE:
                        self._current_operation = STATE_AUTO
                     else:
@@ -405,11 +420,9 @@ class BroadlinkHysenClimate(ClimateDevice):
 
             except socket.timeout as error:
                   if retry < 1:
-                    _LOGGER.error("Failed to get Data from Hysen Device:%s",error)
+                    _LOGGER.error(
+                        "Failed to get Data from Hysen Device:%s", error)
                     return
             except (vol.Invalid, vol.MultipleInvalid) as error:
-                  _LOGGER.warning("%s %s",error, error.__str__)
-                  pass  
-            
-
-
+                  _LOGGER.warning("%s %s", error, error.__str__)
+                  pass
