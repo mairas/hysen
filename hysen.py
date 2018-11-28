@@ -282,6 +282,7 @@ class BroadlinkHysenClimate(ClimateDevice):
           _LOGGER.error("Unknown command for Broadlink Hysen Device")
           return
 
+
     # set time on device
     # n.b. day=1 is Monday, ..., day=7 is Sunday
     def set_time(self, hour, minute, second, day):
@@ -295,6 +296,8 @@ class BroadlinkHysenClimate(ClimateDevice):
                 except socket.timeout:
                     if retry == DEFAULT_RETRY-1:
                        _LOGGER.error("Failed to send Set Time command to Broadlink Hysen Device")
+
+
     # Advanced settings
     # Sensor mode (SEN) sensor = 0 for internal sensor, 1 for external sensor, 2 for internal control temperature, external limit temperature. Factory default: 0.
     # Set temperature range for external sensor (OSV) osv = 5..99. Factory default: 42C
@@ -307,7 +310,18 @@ class BroadlinkHysenClimate(ClimateDevice):
     # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ]
     # E.g. loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule
     # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
-    def set_advanced(self, loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweron):
+    def set_advanced(self, loop_mode=None, sensor=None, osv=None, dif=None,
+                     svh=None, svl=None, adj=None, fre=None, poweron=None):
+        loop_mode = self._loop_mode if loop_mode is None else loop_mode
+        sensor = self.sensor_mode if sensor is None else sensor
+        osv = self.external_sensor_temprange if osv is None else osv
+        dif = self.deadzone_sensor_temprange if dif is None else dif
+        svh = self._max_temp if svh is None else svh
+        svl = self._min_temp if svl is None else svl
+        adj = self.roomtemp_offset if adj is None else adj
+        fre = self.anti_freeze_function if fre is None else fre
+        poweron = self.poweron_mem if poweron is None else poweron
+
         for retry in range(DEFAULT_RETRY):
             try:
                 self._broadlink_device.set_advanced(self, loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweron)
