@@ -28,6 +28,7 @@ SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE | SUPPORT_OPERATION_MODE | SUPPORT_ON
 CONF_TARGET_TEMP = 'target_temp_default'
 CONF_TARGET_TEMP_STEP = 'target_temp_step'
 CONF_OPERATIONS = 'operations'
+CONF_USE_EXTERNAL_SENSOR = 'use_external_sensor'
 
 STATE_IDLE = "off"
 STATE_HEAT = "heat"
@@ -44,6 +45,7 @@ DEFAULT_RETRY = 3
 DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
 DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO]
+DEFAULT_USE_EXTERNAL_SENSOR = False
 
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -53,6 +55,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP_STEP, default=DEFAULT_TARGET_TEMP_STEP): cv.positive_int,
+    vol.Optional(CONF_USE_EXTERNAL_SENSOR, default=DEFAULT_USE_EXTERNAL_SENSOR): cv.boolean,
 })
 
 
@@ -65,6 +68,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     target_temp_default = config.get(CONF_TARGET_TEMP)
     target_temp_step = config.get(CONF_TARGET_TEMP_STEP)
     operation_list = DEFAULT_OPERATION_LIST
+    use_external_sensor = config.get(CONF_USE_EXTERNAL_SENSOR)
 
     import broadlink
 
@@ -75,7 +79,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         broadlink_device.auth()
         add_devices([
                     BroadlinkHysenClimate(
-                        hass, name, broadlink_device, target_temp_default, target_temp_step, operation_list)
+                        hass, name, broadlink_device, target_temp_default,
+                        target_temp_step, operation_list, use_external_sensor)
                     ])
     except socket.timeout:
         _LOGGER.error(
@@ -84,7 +89,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
 class BroadlinkHysenClimate(ClimateDevice):
 
-    def __init__(self, hass, name, broadlink_device, target_temp_default, target_temp_step, operation_list):
+    def __init__(self, hass, name, broadlink_device, target_temp_default, 
+                 target_temp_step, operation_list, use_external_sensor):
         """Initialize the Broadlink Hysen Climate device."""
         self.hass = hass
         self._name = name
@@ -94,6 +100,8 @@ class BroadlinkHysenClimate(ClimateDevice):
         self._target_temperature = target_temp_default
         self._target_temperature_step = target_temp_step
         self._unit_of_measurement = hass.config.units.temperature_unit
+
+        self._use_external_sensor = use_external_sensor
 
         self._min_temp = 0
         self._max_temp = 0
@@ -141,7 +149,10 @@ class BroadlinkHysenClimate(ClimateDevice):
     @property
     def current_temperature(self):
         """Return the current temperature."""
-        return self._current_temperature
+        if self._use_external_sensor:
+            return self.external_temp
+        else:
+            return self._current_temperature
 
     @property
     def min_temp(self):
