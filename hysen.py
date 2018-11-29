@@ -59,7 +59,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 
-def setup_platform(hass, config, add_devices, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     """Set up the Broadlink Hysen Climate platform."""
     name = config.get(CONF_NAME)
     ip_addr = config.get(CONF_HOST)
@@ -77,7 +77,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
     try:
         broadlink_device.auth()
-        add_devices([
+        async_add_devices([
                     BroadlinkHysenClimate(
                         hass, name, broadlink_device, target_temp_default,
                         target_temp_step, operation_list, use_external_sensor)
@@ -129,7 +129,16 @@ class BroadlinkHysenClimate(ClimateDevice):
         self.week_day = 0
         self.week_end = 0
 
-        self.update()
+        self._available = False  # should become True after first update()
+
+    async def async_added_to_hass(self):
+        """Run when entity about to be added."""
+        await self.hass.async_add_executor_job(self._broadlink_device.auth)
+
+    @property
+    def available(self) -> bool:
+        """Return True if the device is currently available."""
+        return self._available
 
     @property
     def should_poll(self):
@@ -428,6 +437,8 @@ class BroadlinkHysenClimate(ClimateDevice):
                  else:
                      self._target_temperature = self._min_temp
                      self._current_operation = STATE_IDLE
+  
+                    self._available = True
 
             except socket.timeout as error:
                   if retry < 1:
