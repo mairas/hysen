@@ -243,7 +243,12 @@ class BroadlinkHysenClimate(ClimateDevice):
         if kwargs.get(ATTR_TEMPERATURE) is not None:
             self._target_temperature = kwargs.get(ATTR_TEMPERATURE)
             if (self._power_state == HYSEN_POWERON):
+                prev_sensor_mode = self.sensor_mode
                 self.send_tempset_command(kwargs.get(ATTR_TEMPERATURE))
+                # dirty hack: to ensure that the tempset didn't change
+                # the sensor mode due to a device firmware bug,
+                # forcibly reset the sensor mode
+                self.set_advanced(sensor=prev_sensor_mode)
             self.schedule_update_ha_state()
 
     def set_operation_mode(self, operation_mode):
