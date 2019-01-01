@@ -360,7 +360,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         for retry in range(DEFAULT_RETRY):
             try:
                 self._broadlink_device.set_advanced(
-                    self, loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweron)
+                    loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweron)
                 break
             except (socket.timeout, ValueError):
                 try:
