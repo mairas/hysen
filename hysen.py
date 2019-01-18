@@ -207,7 +207,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         attr['heating_active'] = self._is_heating_active
         attr['auto_override'] = self.auto_override
         attr['sensor_mode'] = self.sensor_mode
-        attr['external_sensor_temprange'] = self.external_temp
+        attr['external_sensor_temprange'] = self.external_sensor_temprange
         attr['deadzone_sensor_temprange'] = self.deadzone_sensor_temprange
         attr['loop_mode'] = self._loop_mode
         attr['roomtemp_offset'] = self.roomtemp_offset
