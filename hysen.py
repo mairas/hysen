@@ -30,7 +30,7 @@ CONF_TARGET_TEMP_STEP = 'target_temp_step'
 CONF_OPERATIONS = 'operations'
 CONF_USE_EXTERNAL_SENSOR = 'use_external_sensor'
 
-STATE_IDLE = "off"
+STATE_OFF = "off"
 STATE_HEAT = "heat"
 STATE_AUTO = "auto"
 
@@ -40,11 +40,11 @@ HYSEN_MANUALMODE = 0
 HYSEN_AUTOMODE = 1
 
 DEFAULT_NAME = 'Broadlink Hysen Climate'
-DEFAULT_TIMEOUT = 10
-DEFAULT_RETRY = 3
+DEFAULT_TIMEOUT = 5
+DEFAULT_RETRY = 2
 DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
-DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO]
+DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO,STATE_OFF]
 DEFAULT_USE_EXTERNAL_SENSOR = False
 
 
@@ -108,7 +108,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         self._current_temperature = 0
         self._power_state = HYSEN_POWEROFF  # On = 1  #Off = 0
         self._auto_state = HYSEN_MANUALMODE  # Manual =0   #Auto, =1
-        self._current_operation = STATE_IDLE
+        self._current_operation = STATE_OFF
         self._operation_list = operation_list
         self._loop_mode = 0  # 12345,67 = 1   123456,7 = 2  1234567 = 3
         self._is_heating_active = 0  # Demand = 1, No Demand = 0
@@ -207,7 +207,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         attr['heating_active'] = self._is_heating_active
         attr['auto_override'] = self.auto_override
         attr['sensor_mode'] = self.sensor_mode
-        attr['external_sensor_temprange'] = self.external_temp
+        attr['external_sensor_temprange'] = self.external_sensor_temprange
         attr['deadzone_sensor_temprange'] = self.deadzone_sensor_temprange
         attr['loop_mode'] = self._loop_mode
         attr['roomtemp_offset'] = self.roomtemp_offset
@@ -311,6 +311,8 @@ class BroadlinkHysenClimate(ClimateDevice):
             if self._power_state == HYSEN_POWEROFF:
                 self.send_power_command(HYSEN_POWERON)
             self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode)
+        elif operation_mode == STATE_OFF:
+                  self.send_power_command(HYSEN_POWEROFF)
         else:
             _LOGGER.error("Unknown command for Broadlink Hysen Device")
         return
@@ -441,7 +443,7 @@ class BroadlinkHysenClimate(ClimateDevice):
                             self._current_operation = STATE_HEAT
                     else:
                         self._target_temperature = self._min_temp
-                        self._current_operation = STATE_IDLE
+                        self._current_operation = STATE_OFF
 
                     self._available = True
 
