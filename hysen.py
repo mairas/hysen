@@ -2,7 +2,7 @@
 Platform for Hysen Electronic heating Thermostats power by broadlink.
 (Beok, Floureon, Decdeal) 
 discussed in https://community.home-assistant.io/t/floor-heat-thermostat/29908
-"""
+20/01/2019"""
 
 import logging
 import binascii
@@ -17,7 +17,7 @@ from homeassistant.components.climate import (ClimateDevice, PLATFORM_SCHEMA, SU
                                               SUPPORT_OPERATION_MODE, SUPPORT_ON_OFF)
 
 from homeassistant.const import (ATTR_TEMPERATURE, ATTR_UNIT_OF_MEASUREMENT,
-                                 CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE)
+                                 CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE,STATE_OFF,STATE_ON)
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
@@ -28,9 +28,7 @@ SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE | SUPPORT_OPERATION_MODE | SUPPORT_ON
 CONF_TARGET_TEMP = 'target_temp_default'
 CONF_TARGET_TEMP_STEP = 'target_temp_step'
 CONF_OPERATIONS = 'operations'
-CONF_USE_EXTERNAL_SENSOR = 'use_external_sensor'
 
-STATE_OFF = "off"
 STATE_HEAT = "heat"
 STATE_AUTO = "auto"
 
@@ -39,13 +37,13 @@ HYSEN_POWEROFF = 0
 HYSEN_MANUALMODE = 0
 HYSEN_AUTOMODE = 1
 
+
 DEFAULT_NAME = 'Broadlink Hysen Climate'
 DEFAULT_TIMEOUT = 5
 DEFAULT_RETRY = 2
 DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
 DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO,STATE_OFF]
-DEFAULT_USE_EXTERNAL_SENSOR = False
 
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -55,7 +53,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP_STEP, default=DEFAULT_TARGET_TEMP_STEP): cv.positive_int,
-    vol.Optional(CONF_USE_EXTERNAL_SENSOR, default=DEFAULT_USE_EXTERNAL_SENSOR): cv.boolean,
 })
 
 
@@ -68,7 +65,6 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
     target_temp_default = config.get(CONF_TARGET_TEMP)
     target_temp_step = config.get(CONF_TARGET_TEMP_STEP)
     operation_list = DEFAULT_OPERATION_LIST
-    use_external_sensor = config.get(CONF_USE_EXTERNAL_SENSOR)
 
     import broadlink
 
@@ -80,7 +76,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
         async_add_devices([
             BroadlinkHysenClimate(
                 hass, name, broadlink_device, target_temp_default,
-                target_temp_step, operation_list, use_external_sensor)
+                target_temp_step, operation_list)
             ])
     except socket.timeout:
         _LOGGER.error(
@@ -90,7 +86,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 class BroadlinkHysenClimate(ClimateDevice):
 
     def __init__(self, hass, name, broadlink_device, target_temp_default, 
-                 target_temp_step, operation_list, use_external_sensor):
+                 target_temp_step, operation_list):
         """Initialize the Broadlink Hysen Climate device."""
         self.hass = hass
         self._name = name
@@ -100,8 +96,6 @@ class BroadlinkHysenClimate(ClimateDevice):
         self._target_temperature = target_temp_default
         self._target_temperature_step = target_temp_step
         self._unit_of_measurement = hass.config.units.temperature_unit
-
-        self._use_external_sensor = use_external_sensor
 
         self._min_temp = 0
         self._max_temp = 0
@@ -122,6 +116,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         self.anti_freeze_function = 0
         self.poweron_mem = 0
         self.external_temp = 0
+
         self.clock_hour = 0
         self.clock_min = 0
         self.clock_sec = 0
@@ -158,7 +153,7 @@ class BroadlinkHysenClimate(ClimateDevice):
     @property
     def current_temperature(self):
         """Return the current temperature."""
-        if self._use_external_sensor:
+        if self.sensor_mode == 1:
             return self.external_temp
         else:
             return self._current_temperature
@@ -224,7 +219,6 @@ class BroadlinkHysenClimate(ClimateDevice):
 
     @property
     def is_on(self):
-        """Return the list of available operation modes."""
         if self._power_state == HYSEN_POWERON:
             return True
         else:
@@ -243,12 +237,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         if kwargs.get(ATTR_TEMPERATURE) is not None:
             self._target_temperature = kwargs.get(ATTR_TEMPERATURE)
             if (self._power_state == HYSEN_POWERON):
-                prev_sensor_mode = self.sensor_mode
                 self.send_tempset_command(kwargs.get(ATTR_TEMPERATURE))
-                # dirty hack: to ensure that the tempset didn't change
-                # the sensor mode due to a device firmware bug,
-                # forcibly reset the sensor mode
-                self.set_advanced(sensor=prev_sensor_mode)
             self.schedule_update_ha_state()
 
     def set_operation_mode(self, operation_mode):
@@ -283,7 +272,7 @@ class BroadlinkHysenClimate(ClimateDevice):
                         _LOGGER.error(
                             "Failed to send Power command to Broadlink Hysen Device")
 
-    def send_mode_command(self, target_state, loopmode=1, sensor=0):
+    def send_mode_command(self, target_state, loopmode, sensor):
         for retry in range(DEFAULT_RETRY):
             try:
                 self._broadlink_device.set_mode(target_state, loopmode, sensor)
@@ -306,11 +295,11 @@ class BroadlinkHysenClimate(ClimateDevice):
         if operation_mode == STATE_HEAT:
             if self._power_state == HYSEN_POWEROFF:
                 self.send_power_command(HYSEN_POWERON)
-            self.send_mode_command(HYSEN_MANUALMODE, self._loop_mode)
+            self.send_mode_command(HYSEN_MANUALMODE, self._loop_mode,self.sensor_mode)
         elif operation_mode == STATE_AUTO:
             if self._power_state == HYSEN_POWEROFF:
                 self.send_power_command(HYSEN_POWERON)
-            self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode)
+            self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode,self.sensor_mode)
         elif operation_mode == STATE_OFF:
                   self.send_power_command(HYSEN_POWEROFF)
         else:
@@ -342,13 +331,13 @@ class BroadlinkHysenClimate(ClimateDevice):
     # Lower temperature limit for internal sensor (SVL) svl = 5..99. Factory default: 5C
     # Actual temperature calibration (AdJ) adj = -0.5. Prescision 0.1C
     # Anti-freezing function (FrE) fre = 0 for anti-freezing function shut down, 1 for anti-freezing function open. Factory default: 0
-    # Power on memory (POn) poweron = 0 for power on memory off, 1 for power on memory on. Factory default: 0
+    # Power on memory (POn) poweronmem = 0 for power on memory off, 1 for power on memory on. Factory default: 0
     # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ]
     # E.g. loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule
     # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
 
     def set_advanced(self, loop_mode=None, sensor=None, osv=None, dif=None,
-                     svh=None, svl=None, adj=None, fre=None, poweron=None):
+                     svh=None, svl=None, adj=None, fre=None, poweronmem=None):
         loop_mode = self._loop_mode if loop_mode is None else loop_mode
         sensor = self.sensor_mode if sensor is None else sensor
         osv = self.external_sensor_temprange if osv is None else osv
@@ -357,12 +346,12 @@ class BroadlinkHysenClimate(ClimateDevice):
         svl = self._min_temp if svl is None else svl
         adj = self.roomtemp_offset if adj is None else adj
         fre = self.anti_freeze_function if fre is None else fre
-        poweron = self.poweron_mem if poweron is None else poweron
+        poweronmem = self.poweron_mem if poweronmem is None else poweronmem
 
         for retry in range(DEFAULT_RETRY):
             try:
                 self._broadlink_device.set_advanced(
-                    loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweron)
+                    loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweronmem)
                 break
             except (socket.timeout, ValueError):
                 try:
@@ -451,6 +440,11 @@ class BroadlinkHysenClimate(ClimateDevice):
                 if retry < 1:
                     _LOGGER.error(
                         "Failed to get Data from Hysen Device:%s", error)
+                    self._power_state = HYSEN_POWEROFF
+                    self._current_operation = STATE_OFF
+                    self._current_temperature = 0
+                    self._min_temp = 0
+                    self.external_temp = 0
                 return
             except (vol.Invalid, vol.MultipleInvalid) as error:
                 _LOGGER.warning("%s %s", error, error.__str__)
