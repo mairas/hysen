@@ -2,7 +2,7 @@
 Platform for Hysen Electronic heating Thermostats power by broadlink.
 (Beok, Floureon, Decdeal) 
 discussed in https://community.home-assistant.io/t/floor-heat-thermostat/29908
-20/01/2019"""
+21/01/2019"""
 
 import logging
 import binascii
@@ -10,7 +10,43 @@ import socket
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
 import inspect
-from datetime import timedelta
+import datetime 
+
+#*****************************************************************************************************************************
+# Example Homeassitant Config
+
+#climate:
+#  - platform: hysen
+#    name: House Thermostat
+#    host: 192.168.0.201
+#    mac: '34:EA:34:87:5B:7B'
+#    target_temp_default: 20
+#    target_temp_step: 0.5
+#    scan_interval: 15
+#    sync_clock_time_per_day: True
+#    update_timeout:5
+
+#- platform: template
+#   sensors:
+#    house_thermostat_mainhousetemp:
+#     icon_template: mdi:thermometer-lines
+#     friendly_name: "House Temprature"
+#     value_template: "{{states.climate.house_thermostat.attributes.current_temperature}}"
+#     unit_of_measurement: "°C"
+#    house_thermostat_heating_state:
+#     icon_template: mdi:fire
+#     friendly_name: "Heating Demand"
+#     value_template: "{% if states.climate.house_thermostat.attributes.heating_active == 1 %}On{% else %}Off{% endif %}"
+#    house_thermostat_auto_override:
+#     icon_template: mdi:flash-outline
+#     friendly_name: "Auto Override"
+#     value_template: "{% if states.climate.house_thermostat.attributes.auto_override == 1 %}On{% else %}Off{% endif %}"
+#    house_thermostat_externalsensortemp:
+#     icon_template: mdi:thermometer-lines
+#     friendly_name: "External Sensor Temp"
+#     value_template: "{{states.climate.house_thermostat.attributes.external_temp}}"
+#     unit_of_measurement: "°C"
+#*****************************************************************************************************************************
 
 from homeassistant.components.climate import (ClimateDevice, PLATFORM_SCHEMA, SUPPORT_TARGET_TEMPERATURE,
                                               ATTR_TEMPERATURE,
@@ -27,7 +63,9 @@ SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE | SUPPORT_OPERATION_MODE | SUPPORT_ON
 
 CONF_TARGET_TEMP = 'target_temp_default'
 CONF_TARGET_TEMP_STEP = 'target_temp_step'
-CONF_OPERATIONS = 'operations'
+CONF_TIMEOUT = 'update_timeout'
+CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = 'sync_clock_time_per_day'
+
 
 STATE_HEAT = "heat"
 STATE_AUTO = "auto"
@@ -43,6 +81,7 @@ DEFAULT_TIMEOUT = 5
 DEFAULT_RETRY = 2
 DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
+DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = False
 DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO,STATE_OFF]
 
 
@@ -53,6 +92,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): cv.positive_int,
     vol.Optional(CONF_TARGET_TEMP_STEP, default=DEFAULT_TARGET_TEMP_STEP): cv.positive_int,
+    vol.Optional(CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY, default=DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY): cv.boolean,
 })
 
 
@@ -62,9 +102,10 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
     ip_addr = config.get(CONF_HOST)
     mac_addr = binascii.unhexlify(config.get(
         CONF_MAC).encode().replace(b':', b''))
+    operation_list = DEFAULT_OPERATION_LIST
     target_temp_default = config.get(CONF_TARGET_TEMP)
     target_temp_step = config.get(CONF_TARGET_TEMP_STEP)
-    operation_list = DEFAULT_OPERATION_LIST
+    sync_clock_time_per_day = config.get(CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY)
 
     import broadlink
 
@@ -76,7 +117,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
         async_add_devices([
             BroadlinkHysenClimate(
                 hass, name, broadlink_device, target_temp_default,
-                target_temp_step, operation_list)
+                target_temp_step, operation_list,sync_clock_time_per_day)
             ])
     except socket.timeout:
         _LOGGER.error(
@@ -86,49 +127,63 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 class BroadlinkHysenClimate(ClimateDevice):
 
     def __init__(self, hass, name, broadlink_device, target_temp_default, 
-                 target_temp_step, operation_list):
+                 target_temp_step, operation_list,sync_clock_time_per_day):
         """Initialize the Broadlink Hysen Climate device."""
-        self.hass = hass
+        self._hass = hass
         self._name = name
-        self.HysenData = []
+        self._HysenData = []
         self._broadlink_device = broadlink_device
+
+        self._sync_clock_time_per_day = sync_clock_time_per_day
+        self._current_day_of_week = 0
 
         self._target_temperature = target_temp_default
         self._target_temperature_step = target_temp_step
         self._unit_of_measurement = hass.config.units.temperature_unit
 
-        self._min_temp = 0
-        self._max_temp = 0
-        self._current_temperature = 0
-        self._power_state = HYSEN_POWEROFF  # On = 1  #Off = 0
-        self._auto_state = HYSEN_MANUALMODE  # Manual =0   #Auto, =1
+        self._power_state = HYSEN_POWEROFF     # On = 1  #Off = 0
+        self._auto_state = HYSEN_MANUALMODE    # Manual =0   #Auto, =1
         self._current_operation = STATE_OFF
         self._operation_list = operation_list
-        self._loop_mode = 0  # 12345,67 = 1   123456,7 = 2  1234567 = 3
-        self._is_heating_active = 0  # Demand = 1, No Demand = 0
+        self._is_heating_active = 0            # Demand = 1, No Demand = 0
+        self._auto_override = 0                # Yes = 1, No = 0
+        self._remote_lock = 0                  # Lock the local thermostat keypad 0 = No, Yes =1  
 
-        self.remote_lock = 0
-        self.auto_override = 0
-        self.sensor_mode = 0
-        self.external_sensor_temprange = 0
-        self.deadzone_sensor_temprange = 0
-        self.roomtemp_offset = 0
-        self.anti_freeze_function = 0
-        self.poweron_mem = 0
-        self.external_temp = 0
+        self._loop_mode = 0  # 12345,67 = 0   123456,7 = 1  1234567 = 2 
+                             # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ] 
+                             # loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule 
+                             # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
 
-        self.clock_hour = 0
-        self.clock_min = 0
-        self.clock_sec = 0
-        self.day_of_week = 0
-        self.week_day = 0
-        self.week_end = 0
+        self._sensor_mode = 0  # Sensor mode (SEN) sensor = 0 for internal sensor, 
+                               # 1 for external sensor, 2 for internal control temperature, external limit temperature. Factory default: 0.
+
+        self._max_temp = 35                  # Upper temperature limit for internal sensor (SVH) svh = 5..99. Factory default: 35C
+        self._min_temp = 5                   # Lower temperature limit for internal sensor (SVL) svl = 5..99. Factory default: 5C
+        self._external_sensor_temprange = 42 # Set temperature range for external sensor (OSV) osv = 5..99. Factory default: 42C
+        self._deadzone_sensor_temprange = 2  # Deadzone for floor temprature (dIF) dif = 1..9. Factory default: 2C
+        self._roomtemp_offset = 0            # Actual temperature calibration (AdJ) adj = -0.5. Prescision 0.1C
+        self._anti_freeze_function = 1       # Anti-freezing function (FrE) fre = 0 for anti-freezing function shut down, 1 for anti-freezing function open. Factory default: 0
+        self._poweron_mem = 1                # Power on memory (POn) poweronmem = 0 for power on memory off, 1 for power on memory on. Factory default: 0
+
+        self._room_temp = 0
+        self._external_temp = 0
+
+        self._clock_hour = 0
+        self._clock_min = 0
+        self._clock_sec = 0
+        self._day_of_week = 0
+        self._week_day = ""
+        self._week_end = ""
+
+#       ******TOBE DONE ALLOW THERMOSTAT PERAMETERS TO BE SETUP FROM HOMEASSISTANT CONFIG*****
+        # Setup the Thermostat 
+#        self.set_advanced(self._loop_mode, self._sensor_mode, self._external_sensor_temprange, self._deadzone_sensor_temprange, self._max_temp, self._min_temp, self._roomtemp_offset, self._anti_freeze_function, self._poweron_mem)
 
         self._available = False  # should become True after first update()
 
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
-        await self.hass.async_add_executor_job(self._broadlink_device.auth)
+        await self._hass.async_add_executor_job(self._broadlink_device.auth)
 
     @property
     def available(self) -> bool:
@@ -153,10 +208,11 @@ class BroadlinkHysenClimate(ClimateDevice):
     @property
     def current_temperature(self):
         """Return the current temperature."""
-        if self.sensor_mode == 1:
-            return self.external_temp
+        # sensor = 0 for internal sensor, 1 for external sensor, 2 for internal control temperature, external limit temperature.
+        if self._sensor_mode == 1:
+            return self._external_temp
         else:
-            return self._current_temperature
+            return self._room_temp
 
     @property
     def min_temp(self):
@@ -197,24 +253,25 @@ class BroadlinkHysenClimate(ClimateDevice):
     def device_state_attributes(self):
         """Return device specific state attributes."""
         attr = {}
-        attr['remote_lock'] = self.remote_lock
         attr['power_state'] = self._power_state
+        attr['sensor_mode'] = self._sensor_mode        
+        attr['room_temp'] = self._room_temp
+        attr['external_temp'] = self._external_temp        
         attr['heating_active'] = self._is_heating_active
-        attr['auto_override'] = self.auto_override
-        attr['sensor_mode'] = self.sensor_mode
-        attr['external_sensor_temprange'] = self.external_sensor_temprange
-        attr['deadzone_sensor_temprange'] = self.deadzone_sensor_temprange
+        attr['auto_override'] = self._auto_override
+        attr['external_sensor_temprange'] = self._external_sensor_temprange
+        attr['deadzone_sensor_temprange'] = self._deadzone_sensor_temprange
         attr['loop_mode'] = self._loop_mode
-        attr['roomtemp_offset'] = self.roomtemp_offset
-        attr['anti_freeze_function'] = self.anti_freeze_function
-        attr['poweron_mem'] = self.poweron_mem
-        attr['external_temp'] = self.external_temp
-        attr['clock_hour'] = self.clock_hour
-        attr['clock_min'] = self.clock_min
-        attr['clock_sec'] = self.clock_sec
-        attr['day_of_week'] = self.day_of_week
-        attr['week_day'] = self.week_day
-        attr['week_end'] = self.week_end
+        attr['roomtemp_offset'] = self._roomtemp_offset
+        attr['anti_freeze_function'] = self._anti_freeze_function
+        attr['poweron_mem'] = self._poweron_mem
+        attr['remote_lock'] = self._remote_lock
+        attr['clock_hour'] = self._clock_hour
+        attr['clock_min'] = self._clock_min
+        attr['clock_sec'] = self._clock_sec
+        attr['day_of_week'] = self._day_of_week
+        attr['week_day'] = str(self._week_day)
+        attr['week_end'] = str(self._week_end)
         return attr
 
     @property
@@ -286,20 +343,15 @@ class BroadlinkHysenClimate(ClimateDevice):
                             "Failed to send OpMode-Heat/Manual command to Broadlink Hysen Device")
 
     # Change controller mode
-    # auto_mode = 1 for auto (scheduled/timed) mode, 0 for manual mode.
-    # Manual mode will activate last used temperature.  In typical usage call set_temp to activate manual control and set temp.
-    # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ]
-    # E.g. loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule
-    # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
     def set_operation_mode_command(self, operation_mode):
         if operation_mode == STATE_HEAT:
             if self._power_state == HYSEN_POWEROFF:
                 self.send_power_command(HYSEN_POWERON)
-            self.send_mode_command(HYSEN_MANUALMODE, self._loop_mode,self.sensor_mode)
+            self.send_mode_command(HYSEN_MANUALMODE, self._loop_mode,self._sensor_mode)
         elif operation_mode == STATE_AUTO:
             if self._power_state == HYSEN_POWEROFF:
                 self.send_power_command(HYSEN_POWERON)
-            self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode,self.sensor_mode)
+            self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode,self._sensor_mode)
         elif operation_mode == STATE_OFF:
                   self.send_power_command(HYSEN_POWEROFF)
         else:
@@ -312,8 +364,7 @@ class BroadlinkHysenClimate(ClimateDevice):
     def set_time(self, hour, minute, second, day):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_time(
-                    self, hour, minute, second, day)
+                self._broadlink_device.set_time(hour, minute, second, day)
                 break
             except (socket.timeout, ValueError):
                 try:
@@ -339,14 +390,14 @@ class BroadlinkHysenClimate(ClimateDevice):
     def set_advanced(self, loop_mode=None, sensor=None, osv=None, dif=None,
                      svh=None, svl=None, adj=None, fre=None, poweronmem=None):
         loop_mode = self._loop_mode if loop_mode is None else loop_mode
-        sensor = self.sensor_mode if sensor is None else sensor
-        osv = self.external_sensor_temprange if osv is None else osv
-        dif = self.deadzone_sensor_temprange if dif is None else dif
+        sensor = self._sensor_mode if sensor is None else sensor
+        osv = self._external_sensor_temprange if osv is None else osv
+        dif = self._deadzone_sensor_temprange if dif is None else dif
         svh = self._max_temp if svh is None else svh
         svl = self._min_temp if svl is None else svl
-        adj = self.roomtemp_offset if adj is None else adj
-        fre = self.anti_freeze_function if fre is None else fre
-        poweronmem = self.poweron_mem if poweronmem is None else poweronmem
+        adj = self._roomtemp_offset if adj is None else adj
+        fre = self._anti_freeze_function if fre is None else fre
+        poweronmem = self._poweron_mem if poweronmem is None else poweronmem
 
         for retry in range(DEFAULT_RETRY):
             try:
@@ -370,7 +421,7 @@ class BroadlinkHysenClimate(ClimateDevice):
     def set_schedule(self, weekday, weekend):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_schedule(self, weekday, weekend)
+                self._broadlink_device.set_schedule(weekday, weekend)
                 break
             except (socket.timeout, ValueError):
                 try:
@@ -398,32 +449,32 @@ class BroadlinkHysenClimate(ClimateDevice):
         """Get the latest data from the sensor."""
         for retry in range(DEFAULT_RETRY):
             try:
-                self.HysenData = self._broadlink_device.get_full_status()
-                if self.HysenData is not None:
-                    self._current_temperature = self.HysenData['room_temp']
-                    self._target_temperature = self.HysenData['thermostat_temp']
-                    self._min_temp = self.HysenData['svl']
-                    self._max_temp = self.HysenData['svh']
-                    self._loop_mode = int(self.HysenData['loop_mode'])-1
-                    self._power_state = self.HysenData['power']
-                    self._auto_state = self.HysenData['auto_mode']
-                    self._is_heating_active = self.HysenData['active']
+                self._HysenData = self._broadlink_device.get_full_status()
+                if self._HysenData is not None:
+                    self._room_temp = self._HysenData['room_temp']
+                    self._target_temperature = self._HysenData['thermostat_temp']
+                    self._min_temp = self._HysenData['svl']
+                    self._max_temp = self._HysenData['svh']
+                    self._loop_mode = int(self._HysenData['loop_mode'])-1
+                    self._power_state = self._HysenData['power']
+                    self._auto_state = self._HysenData['auto_mode']
+                    self._is_heating_active = self._HysenData['active']
 
-                    self.remote_lock = self.HysenData['remote_lock']
-                    self.auto_override = self.HysenData['temp_manual']
-                    self.sensor_mode = self.HysenData['sensor']
-                    self.external_sensor_temprange = self.HysenData['osv']
-                    self.deadzone_sensor_temprange = self.HysenData['dif']
-                    self.roomtemp_offset = self.HysenData['room_temp_adj']
-                    self.anti_freeze_function = self.HysenData['fre']
-                    self.poweron_mem = self.HysenData['poweron']
-                    self.external_temp = self.HysenData['external_temp']
-                    self.clock_hour = self.HysenData['hour']
-                    self.clock_min = self.HysenData['min']
-                    self.clock_sec = self.HysenData['sec']
-                    self.day_of_week = self.HysenData['dayofweek']
-                    self.week_day = self.HysenData['weekday']
-                    self.week_end = self.HysenData['weekend']
+                    self._remote_lock = self._HysenData['remote_lock']
+                    self._auto_override = self._HysenData['temp_manual']
+                    self._sensor_mode = self._HysenData['sensor']
+                    self._external_sensor_temprange = self._HysenData['osv']
+                    self._deadzone_sensor_temprange = self._HysenData['dif']
+                    self._roomtemp_offset = self._HysenData['room_temp_adj']
+                    self._anti_freeze_function = self._HysenData['fre']
+                    self._poweron_mem = self._HysenData['poweron']
+                    self._external_temp = self._HysenData['external_temp']
+                    self._clock_hour = self._HysenData['hour']
+                    self._clock_min = self._HysenData['min']
+                    self._clock_sec = self._HysenData['sec']
+                    self._day_of_week = self._HysenData['dayofweek']
+                    self._week_day = self._HysenData['weekday']
+                    self._week_end = self._HysenData['weekend']
 
                     if self._power_state == HYSEN_POWERON:
                         if self._auto_state == HYSEN_AUTOMODE:
@@ -442,10 +493,19 @@ class BroadlinkHysenClimate(ClimateDevice):
                         "Failed to get Data from Hysen Device:%s", error)
                     self._power_state = HYSEN_POWEROFF
                     self._current_operation = STATE_OFF
-                    self._current_temperature = 0
+                    self._room_temp = 0
+                    self._external_temp = 0
                     self._min_temp = 0
-                    self.external_temp = 0
                 return
             except (vol.Invalid, vol.MultipleInvalid) as error:
                 _LOGGER.warning("%s %s", error, error.__str__)
                 pass
+
+        """Sync the clock once per day."""
+        if self._sync_clock_time_per_day == True:
+            now_day_of_the_week = (datetime.datetime.today().weekday()) + 1
+            if self._current_day_of_week < now_day_of_the_week:
+                currentDT = datetime.datetime.now()
+                self.set_time(currentDT.hour, currentDT.minute, currentDT.second, now_day_of_the_week)
+                self._current_day_of_week = now_day_of_the_week
+                _LOGGER.warning("Broadlink Hysen Device Clock Sync Success....")
