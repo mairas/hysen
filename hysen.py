@@ -2,7 +2,8 @@
 Platform for Hysen Electronic heating Thermostats power by broadlink.
 (Beok, Floureon, Decdeal) 
 discussed in https://community.home-assistant.io/t/floor-heat-thermostat/29908
-21/01/2019"""
+             https://community.home-assistant.io/t/beta-for-hysen-thermostats-powered-by-broadlink/56267/55
+"""
 
 import logging
 import binascii
@@ -47,12 +48,11 @@ import datetime
 #     value_template: "{{states.climate.house_thermostat.attributes.external_temp}}"
 #     unit_of_measurement: "°C"
 #*****************************************************************************************************************************
-
-from homeassistant.components.climate import (ClimateDevice, PLATFORM_SCHEMA, SUPPORT_TARGET_TEMPERATURE,
+from homeassistant.components.climate import (ClimateDevice, DOMAIN,ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_TARGET_TEMPERATURE,
                                               ATTR_TEMPERATURE,
                                               SUPPORT_OPERATION_MODE, SUPPORT_ON_OFF)
 
-from homeassistant.const import (ATTR_TEMPERATURE, ATTR_UNIT_OF_MEASUREMENT,
+from homeassistant.const import (ATTR_ENTITY_ID,ATTR_TEMPERATURE, ATTR_UNIT_OF_MEASUREMENT,
                                  CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE,STATE_OFF,STATE_ON)
 
 REQUIREMENTS = ['broadlink==0.9.0']
@@ -61,11 +61,113 @@ _LOGGER = logging.getLogger(__name__)
 
 SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE | SUPPORT_OPERATION_MODE | SUPPORT_ON_OFF
 
-CONF_TARGET_TEMP = 'target_temp_default'
-CONF_TARGET_TEMP_STEP = 'target_temp_step'
-CONF_TIMEOUT = 'update_timeout'
-CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = 'sync_clock_time_per_day'
+DEFAULT_NAME = 'Broadlink Hysen Climate'
+DEFAULT_RETRY = 2
+DEFAULT_TIMEOUT = 5
 
+CONF_WIFI_SSID = "ssid"
+CONF_WIFI_PASSWORD ="password"
+CONF_WIFI_SECTYPE = "sectype"
+CONF_WIFI_TIMEOUT = "timeout"
+
+
+SERVICE_SET_WIFI = "hysen_config_wifi"
+SET_WIFI_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_ENTITY_ID,default="all"): cv.comp_entity_ids,
+    vol.Required(CONF_WIFI_SSID): cv.string,
+    vol.Required(CONF_WIFI_PASSWORD): cv.string,
+    vol.Required(CONF_WIFI_SECTYPE): cv.positive_int,
+    vol.Optional(CONF_WIFI_TIMEOUT,default=DEFAULT_TIMEOUT): cv.positive_int,
+})
+
+DEFAULT_LOOPMODE = 0         # 12345,67 = 0   123456,7 = 1  1234567 = 2 
+                             # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ] 
+                             # loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule 
+                             # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
+
+DEFAULT_SENSORMODE = 0         # Sensor mode (SEN) sensor = 0 for internal sensor, 
+                               # 1 for external sensor, 2 for internal control temperature, external limit temperature. Factory default: 0.
+
+DEFAULT_MINTEMP = 5            # Lower temperature limit for internal sensor (SVL) svl = 5..99. Factory default: 5C
+DEFAULT_MAXTEMP = 35           # Upper temperature limit for internal sensor (SVH) svh = 5..99. Factory default: 35C
+DEFAULT_ROOMTEMPOFFSET=0       # Actual temperature calibration (AdJ) adj = -0.5. Prescision 0.1C
+DEFAULT_ANTIFREEZE = 1         # Anti-freezing function (FrE) fre = 0 for anti-freezing function shut down, 1 for anti-freezing function open. Factory default: 0
+DEFAULT_POWERONMEM = 1         # Power on memory (POn) poweronmem = 0 for power on memory off, 1 for power on memory on. Factory default: 0
+DEFAULT_EXTERNALSENSORTEMPRANGE = 42 # Set temperature range for external sensor (OSV) osv = 5..99. Factory default: 42C
+DEFAULT_DEADZONESENSORTEMPRANGE =  1 # Deadzone for floor temprature (dIF) dif = 1..9. Factory default: 2C
+
+CONFIG_ADVANCED_LOOPMODE = "loop_mode" 
+CONFIG_ADVANCED_SENSORMODE = "sensor_mode" 
+CONFIG_ADVANCED_MINTEMP="min_temp" 
+CONFIG_ADVANCED_MAXTEMP="max_temp"
+CONFIG_ADVANCED_ROOMTEMPOFFSET="roomtemp_offset" 
+CONFIG_ADVANCED_ANTIFREEZE="anti_freeze_function"
+CONFIG_ADVANCED_POWERONMEM="poweron_mem"
+CONFIG_ADVANCED_EXTERNALSENSORTEMPRANGE = "external_sensor_temprange" 
+CONFIG_ADVANCED_DEADZONESENSORTEMPRANGE = "deadzone_sensor_temprange" 
+
+
+SERVICE_SET_ADVANCED = "hysen_set_advanced"
+SET_ADVANCED_SCHEMA = vol.Schema({
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
+    vol.Optional(CONFIG_ADVANCED_LOOPMODE,default=DEFAULT_LOOPMODE): vol.Range(min=0, max=2),
+    vol.Optional(CONFIG_ADVANCED_SENSORMODE,default=DEFAULT_SENSORMODE): vol.Range(min=0, max=2),
+    vol.Optional(CONFIG_ADVANCED_MINTEMP,default=DEFAULT_MINTEMP): vol.Range(min=5, max=99),
+    vol.Optional(CONFIG_ADVANCED_MAXTEMP,default=DEFAULT_MAXTEMP): vol.Range(min=5, max=99),
+    vol.Optional(CONFIG_ADVANCED_ROOMTEMPOFFSET,default=DEFAULT_ROOMTEMPOFFSET): vol.Coerce(float),
+    vol.Optional(CONFIG_ADVANCED_ANTIFREEZE,default=DEFAULT_ANTIFREEZE): vol.Range(min=0, max=1),
+    vol.Optional(CONFIG_ADVANCED_POWERONMEM,default=DEFAULT_POWERONMEM): vol.Range(min=0, max=1),
+    vol.Optional(CONFIG_ADVANCED_EXTERNALSENSORTEMPRANGE,default=DEFAULT_EXTERNALSENSORTEMPRANGE): vol.Range(min=5, max=99),
+    vol.Optional(CONFIG_ADVANCED_DEADZONESENSORTEMPRANGE,default=DEFAULT_DEADZONESENSORTEMPRANGE): vol.Range(min=1, max=99),
+})
+
+
+CONFIG_REMOTELOCK = "remotelock"
+
+
+SERVICE_SET_REMOTELOCK = "hysen_set_remotelock"
+SET_REMOTELOCK_SCHEMA = vol.Schema({
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
+    vol.Required(CONFIG_REMOTELOCK): vol.Range(min=0, max=1),
+})
+
+CONFIG_WEEK_PERIOD1_START = 'week_period1_start'
+CONFIG_WEEK_PERIOD1_TEMP = 'week_period1_temp'
+CONFIG_WEEK_PERIOD2_START = 'week_period2_start'
+CONFIG_WEEK_PERIOD2_TEMP = 'week_period2_temp'
+CONFIG_WEEK_PERIOD3_START = 'week_period3_start'
+CONFIG_WEEK_PERIOD3_TEMP = 'week_period3_temp'
+CONFIG_WEEK_PERIOD4_START = 'week_period4_start'
+CONFIG_WEEK_PERIOD4_TEMP = 'week_period4_temp'
+CONFIG_WEEK_PERIOD5_START = 'week_period5_start'
+CONFIG_WEEK_PERIOD5_TEMP = 'week_period5_temp'
+CONFIG_WEEK_PERIOD6_START = 'week_period6_start'
+CONFIG_WEEK_PERIOD6_TEMP = 'week_period6_temp'
+CONFIG_WEEKEND_PERIOD1_START = 'weekend_period1_start'
+CONFIG_WEEKEND_PERIOD1_TEMP = 'weekend_period1_temp'
+CONFIG_WEEKEND_PERIOD2_START = 'weekend_period2_start'
+CONFIG_WEEKEND_PERIOD2_TEMP = 'weekend_period2_temp'
+
+SERVICE_SET_TIME_SCHEDULE = "hysen_set_timeschedule"
+SET_TIME_SCHEDULE_SCHEMA = vol.Schema({
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
+    vol.Required(CONFIG_WEEK_PERIOD1_START): cv.time,
+    vol.Required(CONFIG_WEEK_PERIOD1_TEMP): vol.Coerce(float),
+    vol.Required(CONFIG_WEEK_PERIOD2_START): cv.time,
+    vol.Required(CONFIG_WEEK_PERIOD2_TEMP): vol.Coerce(float),
+    vol.Required(CONFIG_WEEK_PERIOD3_START): cv.time,
+    vol.Required(CONFIG_WEEK_PERIOD3_TEMP): vol.Coerce(float),
+    vol.Required(CONFIG_WEEK_PERIOD4_START): cv.time,
+    vol.Required(CONFIG_WEEK_PERIOD4_TEMP): vol.Coerce(float),
+    vol.Required(CONFIG_WEEK_PERIOD5_START): cv.time,
+    vol.Required(CONFIG_WEEK_PERIOD5_TEMP): vol.Coerce(float),
+    vol.Required(CONFIG_WEEK_PERIOD6_START): cv.time,
+    vol.Required(CONFIG_WEEK_PERIOD6_TEMP): vol.Coerce(float),
+    vol.Required(CONFIG_WEEKEND_PERIOD1_START): cv.time,
+    vol.Required(CONFIG_WEEKEND_PERIOD1_TEMP): vol.Coerce(float),
+    vol.Required(CONFIG_WEEKEND_PERIOD2_START): cv.time,
+    vol.Required(CONFIG_WEEKEND_PERIOD2_TEMP): vol.Coerce(float),
+})
 
 STATE_HEAT = "heat"
 STATE_AUTO = "auto"
@@ -75,53 +177,270 @@ HYSEN_POWEROFF = 0
 HYSEN_MANUALMODE = 0
 HYSEN_AUTOMODE = 1
 
-
-DEFAULT_NAME = 'Broadlink Hysen Climate'
-DEFAULT_TIMEOUT = 5
-DEFAULT_RETRY = 2
+DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO,STATE_OFF]
 DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
 DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = False
-DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO,STATE_OFF]
 
+CONF_TARGET_TEMP = 'target_temp_default'
+CONF_TARGET_TEMP_STEP = 'target_temp_step'
+CONF_TIMEOUT = 'update_timeout'
+CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = 'sync_clock_time_per_day'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    vol.Required(CONF_HOST): cv.string,
+    vol.Optional(CONF_HOST): cv.string,
     vol.Required(CONF_MAC): cv.string,
-    vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): cv.positive_int,
-    vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): cv.positive_int,
-    vol.Optional(CONF_TARGET_TEMP_STEP, default=DEFAULT_TARGET_TEMP_STEP): cv.positive_int,
+    vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): vol.Range(min=0, max=99),
+    vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): vol.Range(min=5, max=99),
+    vol.Optional(CONF_TARGET_TEMP_STEP, default=DEFAULT_TARGET_TEMP_STEP): vol.Coerce(float),
     vol.Optional(CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY, default=DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY): cv.boolean,
 })
 
-
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     """Set up the Broadlink Hysen Climate platform."""
+    import broadlink
+    """Set up service to allow setting Hysen Climate device Wifi setup."""
+    #To get the hysen thermostat in the mode to allow setting of the Wi-fi parameters. 
+    #With the device off Press and hold on the“power” button, then press the “time” button 
+    #Enter to the advanced setting, then press the “auto” button 9 times until “FAC” appears on the display
+    #Press the“up” button up to “32”, then Press the “power” key, and the thermostat will be shutdown.
+    #Press and hold on the “power” button, then press the “time”, the wifi icon beging flashing WiFi fast flashing show.
+    #From Delevopler tools in HA select the climate.hysen_config_wifi service enter the JSON {"ssid":"yourssid","password":"yourpassword","sectype":4}
+    #Security mode options are (0 - none, 1 = WEP, 2 = WPA1, 3 = WPA2, 4 = WPA1/2)
+    #run call service, the wifi icon on the device should stop fast flashing and go stable.
+    #In you router find the thermostat and set it to have a fixed IP, then set it up in your HA config file.
+
+    #Example for service call (hysen_config_wifi) setting  
+    """
+    {"ssid":"yoursid","password":"yourpassword","sectype":4,"timeout":5}
+    """
+    async def async_hysen_set_wifi(thermostat,service):
+                ssid  = service.data.get(CONF_WIFI_SSID)
+                password  = service.data.get(CONF_WIFI_PASSWORD)
+                sectype  = service.data.get(CONF_WIFI_SECTYPE)
+                timeout = service.data.get(CONF_WIFI_TIMEOUT)
+                try:
+                  broadlink.setup(ssid, password, sectype)
+                except socket.timeout as error:
+                  _LOGGER.error("Failed to send Wifi setup to Broadlink Hysen Device(s).")
+                  return False
+                _LOGGER.info("Wifi setup to Broadlink Hysen Device(s) sent.")
+                try:
+                  devices = broadlink.discover(timeout)
+                  devicecount = len(devices)
+                  if devicecount > 0 :
+                     for device in devices:
+                         if device.devtype == 0x4EAD : # Hysen device ID
+                            divicemac = ''.join(format(x, '02x') for x in device.mac)
+                            revmac = [divicemac[i:i+2] for i in range(0, len(divicemac), 2)]
+                            stringmac = revmac[5] +":"+ revmac[4] +":"+ revmac[3]+":"+ revmac[2]+":"+ revmac[1]+":"+ revmac[0]
+                            
+                            _LOGGER.warning("Discovered Broadlink Hysen device : %s, at %s",stringmac,device.host[0])
+                  else:
+                      _LOGGER.warning("No Broadlink Hysen device(s) found.")
+                except socket.timeout as error:
+                  _LOGGER.error("Failed to discover Broadlink Hysen Device(s).")
+                  return False
+                return True
+
+   #Example for service call (hysen_set_advanced) setting  
+    """
+    {"entity_id":"climate.house_thermostat","poweron_mem":"1"}
+    """
+    async def async_hysen_set_advanced(thermostat,service):
+                entity_id = service.data.get(ATTR_ENTITY_ID)
+                if thermostat.entity_id not in entity_id:
+                  _LOGGER.error("Broadlink Hysen Device entity_id not found")
+                  return False
+                loop_mode = service.data.get(CONFIG_ADVANCED_LOOPMODE)
+                sensor_mode = service.data.get(CONFIG_ADVANCED_SENSORMODE)
+                external_sensor_temprange = service.data.get(CONFIG_ADVANCED_EXTERNALSENSORTEMPRANGE)
+                deadzone_sensor_temprange = service.data.get(CONFIG_ADVANCED_DEADZONESENSORTEMPRANGE)
+                max_temp = service.data.get(CONFIG_ADVANCED_MAXTEMP)
+                min_temp = service.data.get(CONFIG_ADVANCED_MINTEMP)
+                roomtemp_offset = service.data.get(CONFIG_ADVANCED_ROOMTEMPOFFSET)
+                anti_freeze_function = service.data.get(CONFIG_ADVANCED_ANTIFREEZE)
+                poweron_mem = service.data.get(CONFIG_ADVANCED_POWERONMEM)
+                try:
+                  thermostat.set_advanced(loop_mode, sensor_mode, external_sensor_temprange, deadzone_sensor_temprange, max_temp, min_temp, roomtemp_offset, anti_freeze_function, poweron_mem)
+                except socket.timeout as error:
+                  _LOGGER.error("Failed to send Advanced setup to Broadlink Hysen Device.")
+                  return False
+                _LOGGER.warning("Advanced setup sent to Broadlink Hysen Device.")
+                return True
+
+    #Exmple sfor service call (hysen_set_heatingschedule) 
+    """
+    {"entity_id":"climate.house_thermostat",
+    "week_period1_start":"06:30", 
+    "week_period1_temp":"20.5",
+    "week_period2_start":"09:00",
+    "week_period2_temp":"17.0",
+    "week_period3_start":"13:00",
+    "week_period3_temp":"17.0",
+    "week_period4_start":"13:00",
+    "week_period4_temp":"17.0",
+    "week_period5_start":"17:00",
+    "week_period5_temp":"20.5",
+    "week_period6_start":"22:00",
+    "week_period6_temp":"17.0",
+    "weekend_period1_start":"7:30",
+    "weekend_period1_temp":"20.5",
+    "weekend_period2_start":"22:30",
+    "weekend_period2_temp":"17.0"}
+    """
+    async def async_hysen_set_time_schedule(thermostat,service):
+               entity_id = service.data.get(ATTR_ENTITY_ID)
+               if thermostat.entity_id not in entity_id:
+                  _LOGGER.error("Broadlink Hysen Device entity_id not found")
+                  return False
+               WEEK_PERIOD1_START  = service.data.get(CONFIG_WEEK_PERIOD1_START)
+               WEEK_PERIOD1_TEMP   = service.data.get(CONFIG_WEEK_PERIOD1_TEMP)
+               WEEK_PERIOD2_START  = service.data.get(CONFIG_WEEK_PERIOD2_START)
+               WEEK_PERIOD2_TEMP   = service.data.get(CONFIG_WEEK_PERIOD2_TEMP)
+               WEEK_PERIOD3_START  = service.data.get(CONFIG_WEEK_PERIOD3_START)
+               WEEK_PERIOD3_TEMP   = service.data.get(CONFIG_WEEK_PERIOD3_TEMP)
+               WEEK_PERIOD4_START  = service.data.get(CONFIG_WEEK_PERIOD4_START)
+               WEEK_PERIOD4_TEMP   = service.data.get(CONFIG_WEEK_PERIOD4_TEMP)
+               WEEK_PERIOD5_START  = service.data.get(CONFIG_WEEK_PERIOD5_START)
+               WEEK_PERIOD5_TEMP   = service.data.get(CONFIG_WEEK_PERIOD5_TEMP)
+               WEEK_PERIOD6_START  = service.data.get(CONFIG_WEEK_PERIOD6_START)
+               WEEK_PERIOD6_TEMP   = service.data.get(CONFIG_WEEK_PERIOD6_TEMP)
+               WEEKEND_PERIOD1_START  = service.data.get(CONFIG_WEEKEND_PERIOD1_START)
+               WEEKEND_PERIOD1_TEMP   = service.data.get(CONFIG_WEEKEND_PERIOD1_TEMP)
+               WEEKEND_PERIOD2_START  = service.data.get(CONFIG_WEEKEND_PERIOD2_START)
+               WEEKEND_PERIOD2_TEMP   = service.data.get(CONFIG_WEEKEND_PERIOD2_TEMP)
+               week_period_1 = dict()
+               week_period_1["start_hour"] = int(WEEK_PERIOD1_START.strftime('%H'))
+               week_period_1["start_minute"] = int(WEEK_PERIOD1_START.strftime('%M'))
+               week_period_1["temp"] = float(WEEK_PERIOD1_TEMP)
+               week_period_2 = dict()
+               week_period_2["start_hour"] = int(WEEK_PERIOD2_START.strftime('%H'))
+               week_period_2["start_minute"] = int(WEEK_PERIOD2_START.strftime('%M'))
+               week_period_2["temp"] = float(WEEK_PERIOD2_TEMP)
+               week_period_3 = dict()
+               week_period_3["start_hour"] = int(WEEK_PERIOD3_START.strftime('%H'))
+               week_period_3["start_minute"] = int(WEEK_PERIOD3_START.strftime('%M'))
+               week_period_3["temp"] = float(WEEK_PERIOD3_TEMP)
+               week_period_4 = dict()
+               week_period_4["start_hour"] = int(WEEK_PERIOD4_START.strftime('%H'))
+               week_period_4["start_minute"] = int(WEEK_PERIOD4_START.strftime('%M'))
+               week_period_4["temp"] = float(WEEK_PERIOD4_TEMP)
+               week_period_5 = dict()
+               week_period_5["start_hour"] = int(WEEK_PERIOD5_START.strftime('%H'))
+               week_period_5["start_minute"] = int(WEEK_PERIOD5_START.strftime('%M'))
+               week_period_5["temp"] = float(WEEK_PERIOD5_TEMP)
+               week_period_6 = dict()
+               week_period_6["start_hour"] = int(WEEK_PERIOD6_START.strftime('%H'))
+               week_period_6["start_minute"] = int(WEEK_PERIOD6_START.strftime('%M'))
+               week_period_6["temp"] = float(WEEK_PERIOD6_TEMP)
+               weekend_period_1 = dict()
+               weekend_period_1["start_hour"] = int(WEEKEND_PERIOD1_START.strftime('%H'))
+               weekend_period_1["start_minute"] = int(WEEKEND_PERIOD1_START.strftime('%M'))
+               weekend_period_1["temp"] = float(WEEKEND_PERIOD1_TEMP)
+               weekend_period_2 = dict()
+               weekend_period_2["start_hour"] = int(WEEKEND_PERIOD2_START.strftime('%H'))
+               weekend_period_2["start_minute"] = int(WEEKEND_PERIOD2_START.strftime('%M'))
+               weekend_period_2["temp"] = float(WEEKEND_PERIOD2_TEMP)
+
+               weekday = [week_period_1, week_period_2,
+                          week_period_3, week_period_4,
+                          week_period_5, week_period_6]
+               weekend = [weekend_period_1, weekend_period_2]
+               try:
+                    thermostat.set_schedule(weekday, weekend)
+               except socket.timeout as error:
+                   _LOGGER.error("Failed to send Time schedule setup to Broadlink Hysen Device.")
+                   return False
+               _LOGGER.warning("Time schedule sent to Broadlink Hysen Device.")
+               return True
+    
+    #Example for service call (hysen_set_remotelock) setting  
+    """
+    {"entity_id":"climate.house_thermostat","remotelock":1}
+    """
+    async def async_hysen_set_remotelock(thermostat,service):
+                entity_id = service.data.get(ATTR_ENTITY_ID)
+                if thermostat.entity_id not in entity_id:
+                  _LOGGER.error("Broadlink Hysen Device entity_id not found")
+                  return False
+                tamper_lock = service.data.get(CONFIG_REMOTELOCK)
+                try:
+                  thermostat.set_lock(tamper_lock)
+                except socket.timeout as error:
+                  _LOGGER.error("Failed to send Tamper Lock setting to Broadlink Hysen Device.")
+                  return False
+                _LOGGER.warning("Remote Lock setting sent to Broadlink Hysen Device.")
+                return True
+
+    hass.data[DOMAIN].async_register_entity_service(
+        SERVICE_SET_WIFI, SET_WIFI_SCHEMA,
+        async_hysen_set_wifi
+        )
+
+    hass.data[DOMAIN].async_register_entity_service(
+        SERVICE_SET_ADVANCED, SET_ADVANCED_SCHEMA,
+        async_hysen_set_advanced
+        )
+
+    hass.data[DOMAIN].async_register_entity_service(
+        SERVICE_SET_TIME_SCHEDULE, SET_TIME_SCHEDULE_SCHEMA,
+        async_hysen_set_time_schedule
+        )
+
+    hass.data[DOMAIN].async_register_entity_service(
+        SERVICE_SET_REMOTELOCK, SET_REMOTELOCK_SCHEMA,
+        async_hysen_set_remotelock
+        )
+
+    """Get paramters for Hysen Climate device."""
     name = config.get(CONF_NAME)
     ip_addr = config.get(CONF_HOST)
-    mac_addr = binascii.unhexlify(config.get(
-        CONF_MAC).encode().replace(b':', b''))
+    mac_addr = config.get(CONF_MAC)
+    timeout = config.get(CONF_TIMEOUT)
+
+    """Get Operation paramters for Hysen Climate device."""
     operation_list = DEFAULT_OPERATION_LIST
     target_temp_default = config.get(CONF_TARGET_TEMP)
     target_temp_step = config.get(CONF_TARGET_TEMP_STEP)
     sync_clock_time_per_day = config.get(CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY)
 
-    import broadlink
-
-    broadlink_device = broadlink.hysen((ip_addr, 80), mac_addr, None)
-    broadlink_device.timeout = config.get(CONF_TIMEOUT)
-
+    """Set up the Hysen Climate devices."""
+    """If IP and Mac given try to directly connect """
+    """If only Mac given try to discover connect """
+    broadlink_device=None;
     try:
-        broadlink_device.auth()
-        async_add_devices([
-            BroadlinkHysenClimate(
-                hass, name, broadlink_device, target_temp_default,
-                target_temp_step, operation_list,sync_clock_time_per_day)
-            ])
-    except socket.timeout:
-        _LOGGER.error(
-            "Failed to connect to Broadlink Hysen Device IP:%s", ip_addr)
+        if (ip_addr != ""):
+            blmac_addr = binascii.unhexlify(mac_addr.encode().replace(b':', b''))
+            broadlink_device = broadlink.hysen((ip_addr, 80), blmac_addr, None)
+        else:
+            devices = broadlink.discover(timeout)
+            devicecount = len(devices)
+            if devicecount > 0 :
+              for device in devices:
+                if device.devtype == 0x4EAD : # Hysen device ID
+                    divicemac = ''.join(format(x, '02x') for x in device.mac)
+                    revmac = [divicemac[i:i+2] for i in range(0, len(divicemac), 2)]
+                    stringmac = revmac[5] +":"+ revmac[4] +":"+ revmac[3]+":"+ revmac[2]+":"+ revmac[1]+":"+ revmac[0]
+                    if (stringmac.capitalize() == mac_addr.capitalize()) :
+                       broadlink_device = device 
+                       _LOGGER.warning("Discovered Broadlink Hysen device : %s, at %s",stringmac,device.host[0])
+                    else:
+                       _LOGGER.error("Broadlink Hysen device MAC:%s not found.",mac_addr)
+            else:
+                _LOGGER.error("No Broadlink Hysen device(s) found.")
+                return False
+        if (broadlink_device is not None):
+            broadlink_device.timeout = timeout
+            broadlink_device.auth()
+            async_add_devices([
+                BroadlinkHysenClimate(
+                    hass, name, broadlink_device, target_temp_default,
+                    target_temp_step, operation_list,sync_clock_time_per_day)
+                ])
+    except:
+        _LOGGER.error("Failed to connect to Broadlink Hysen device MAC:%s, IP:%s", mac_addr,ip_addr)
 
 
 class BroadlinkHysenClimate(ClimateDevice):
@@ -149,35 +468,26 @@ class BroadlinkHysenClimate(ClimateDevice):
         self._auto_override = 0                # Yes = 1, No = 0
         self._remote_lock = 0                  # Lock the local thermostat keypad 0 = No, Yes =1  
 
-        self._loop_mode = 0  # 12345,67 = 0   123456,7 = 1  1234567 = 2 
-                             # loop_mode refers to index in [ "12345,67", "123456,7", "1234567" ] 
-                             # loop_mode = 0 ("12345,67") means Saturday and Sunday follow the "weekend" schedule 
-                             # loop_mode = 2 ("1234567") means every day (including Saturday and Sunday) follows the "weekday" schedule
+        self._loop_mode = DEFAULT_LOOPMODE 
+        self._sensor_mode = DEFAULT_SENSORMODE
+        self._min_temp = DEFAULT_MINTEMP 
+        self._max_temp = DEFAULT_MAXTEMP
+        self._roomtemp_offset = DEFAULT_ROOMTEMPOFFSET
+        self._anti_freeze_function = DEFAULT_ANTIFREEZE
+        self._poweron_mem = DEFAULT_POWERONMEM
 
-        self._sensor_mode = 0  # Sensor mode (SEN) sensor = 0 for internal sensor, 
-                               # 1 for external sensor, 2 for internal control temperature, external limit temperature. Factory default: 0.
-
-        self._max_temp = 35                  # Upper temperature limit for internal sensor (SVH) svh = 5..99. Factory default: 35C
-        self._min_temp = 5                   # Lower temperature limit for internal sensor (SVL) svl = 5..99. Factory default: 5C
-        self._external_sensor_temprange = 42 # Set temperature range for external sensor (OSV) osv = 5..99. Factory default: 42C
-        self._deadzone_sensor_temprange = 2  # Deadzone for floor temprature (dIF) dif = 1..9. Factory default: 2C
-        self._roomtemp_offset = 0            # Actual temperature calibration (AdJ) adj = -0.5. Prescision 0.1C
-        self._anti_freeze_function = 1       # Anti-freezing function (FrE) fre = 0 for anti-freezing function shut down, 1 for anti-freezing function open. Factory default: 0
-        self._poweron_mem = 1                # Power on memory (POn) poweronmem = 0 for power on memory off, 1 for power on memory on. Factory default: 0
-
+        self._external_sensor_temprange = DEFAULT_EXTERNALSENSORTEMPRANGE
+        self._deadzone_sensor_temprange = DEFAULT_DEADZONESENSORTEMPRANGE
         self._room_temp = 0
         self._external_temp = 0
 
         self._clock_hour = 0
         self._clock_min = 0
         self._clock_sec = 0
-        self._day_of_week = 0
+        self._day_of_week = 1
+
         self._week_day = ""
         self._week_end = ""
-
-#       ******TOBE DONE ALLOW THERMOSTAT PERAMETERS TO BE SETUP FROM HOMEASSISTANT CONFIG*****
-        # Setup the Thermostat 
-#        self.set_advanced(self._loop_mode, self._sensor_mode, self._external_sensor_temprange, self._deadzone_sensor_temprange, self._max_temp, self._min_temp, self._roomtemp_offset, self._anti_freeze_function, self._poweron_mem)
 
         self._available = False  # should become True after first update()
 
@@ -377,7 +687,7 @@ class BroadlinkHysenClimate(ClimateDevice):
     # Advanced settings
     # Sensor mode (SEN) sensor = 0 for internal sensor, 1 for external sensor, 2 for internal control temperature, external limit temperature. Factory default: 0.
     # Set temperature range for external sensor (OSV) osv = 5..99. Factory default: 42C
-    # Deadzone for floor temprature (dIF) dif = 1..9. Factory default: 2C
+    # Deadzone for floor temprature (hysteresis) (dIF) dif = 1..9. Factory default: 2C
     # Upper temperature limit for internal sensor (SVH) svh = 5..99. Factory default: 35C
     # Lower temperature limit for internal sensor (SVL) svl = 5..99. Factory default: 5C
     # Actual temperature calibration (AdJ) adj = -0.5. Prescision 0.1C
@@ -398,11 +708,18 @@ class BroadlinkHysenClimate(ClimateDevice):
         adj = self._roomtemp_offset if adj is None else adj
         fre = self._anti_freeze_function if fre is None else fre
         poweronmem = self._poweron_mem if poweronmem is None else poweronmem
+ 
+       # fix for native broadlink.py set_advanced breaking loopmode and operation_mode
+        if self._current_operation == STATE_HEAT:
+            current_mode = HYSEN_MANUALMODE
+        else:
+            current_mode = HYSEN_AUTOMODE
+        mode_byte = ( (loop_mode + 1) << 4) + current_mode
 
         for retry in range(DEFAULT_RETRY):
             try:
                 self._broadlink_device.set_advanced(
-                    loop_mode, sensor, osv, dif, svh, svl, adj, fre, poweronmem)
+                    mode_byte, sensor, osv, dif, svh, svl, adj, fre, poweronmem)
                 break
             except (socket.timeout, ValueError):
                 try:
@@ -434,8 +751,7 @@ class BroadlinkHysenClimate(ClimateDevice):
     def set_lock(self, remote_lock):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_power(
-                    self, self._power_state, remote_lock=0)
+                self._broadlink_device.set_power(self._power_state, remote_lock)
                 break
             except (socket.timeout, ValueError):
                 try:
