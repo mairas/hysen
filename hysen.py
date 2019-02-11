@@ -19,8 +19,8 @@ import datetime
 #climate:
 #  - platform: hysen
 #    name: House Thermostat
-#    host: 192.168.0.201
-#    mac: '34:EA:34:87:5B:7B'
+#    host: 192.168.0.1
+#    mac: '35:EA:34:88:5B:8B'
 #    target_temp_default: 20
 #    target_temp_step: 0.5
 #    scan_interval: 15
@@ -50,7 +50,7 @@ import datetime
 #*****************************************************************************************************************************
 from homeassistant.components.climate import (ClimateDevice, DOMAIN,ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_TARGET_TEMPERATURE,
                                               ATTR_TEMPERATURE,
-                                              SUPPORT_OPERATION_MODE, SUPPORT_ON_OFF)
+                                              SUPPORT_OPERATION_MODE, SUPPORT_ON_OFF,SUPPORT_AWAY_MODE,STATE_HEAT,STATE_AUTO)
 
 from homeassistant.const import (ATTR_ENTITY_ID,ATTR_TEMPERATURE, ATTR_UNIT_OF_MEASUREMENT,
                                  CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE,STATE_OFF,STATE_ON)
@@ -76,8 +76,8 @@ SET_WIFI_SCHEMA = vol.Schema({
     vol.Optional(ATTR_ENTITY_ID,default="all"): cv.comp_entity_ids,
     vol.Required(CONF_WIFI_SSID): cv.string,
     vol.Required(CONF_WIFI_PASSWORD): cv.string,
-    vol.Required(CONF_WIFI_SECTYPE): cv.positive_int,
-    vol.Optional(CONF_WIFI_TIMEOUT,default=DEFAULT_TIMEOUT): cv.positive_int,
+    vol.Required(CONF_WIFI_SECTYPE): vol.Range(min=0, max=4),
+    vol.Optional(CONF_WIFI_TIMEOUT,default=DEFAULT_TIMEOUT): vol.Range(min=0, max=99),
 })
 
 DEFAULT_LOOPMODE = 0         # 12345,67 = 0   123456,7 = 1  1234567 = 2 
@@ -169,15 +169,12 @@ SET_TIME_SCHEDULE_SCHEMA = vol.Schema({
     vol.Required(CONFIG_WEEKEND_PERIOD2_TEMP): vol.Coerce(float),
 })
 
-STATE_HEAT = "heat"
-STATE_AUTO = "auto"
-
+DEFAULT_OPERATIONS_LIST = [STATE_HEAT, STATE_AUTO, STATE_OFF]
 HYSEN_POWERON = 1
 HYSEN_POWEROFF = 0
 HYSEN_MANUALMODE = 0
 HYSEN_AUTOMODE = 1
 
-DEFAULT_OPERATION_LIST = [STATE_HEAT, STATE_AUTO,STATE_OFF]
 DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
 DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = False
@@ -189,8 +186,8 @@ CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = 'sync_clock_time_per_day'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    vol.Optional(CONF_HOST): cv.string,
-    vol.Required(CONF_MAC): cv.string,
+    vol.Optional(CONF_HOST): vol.Match("^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"),
+    vol.Required(CONF_MAC): vol.Match("(?:[0-9a-fA-F]:?){12}"),
     vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): vol.Range(min=0, max=99),
     vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): vol.Range(min=5, max=99),
     vol.Optional(CONF_TARGET_TEMP_STEP, default=DEFAULT_TARGET_TEMP_STEP): vol.Coerce(float),
@@ -401,7 +398,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
     timeout = config.get(CONF_TIMEOUT)
 
     """Get Operation paramters for Hysen Climate device."""
-    operation_list = DEFAULT_OPERATION_LIST
+    operation_list = DEFAULT_OPERATIONS_LIST
     target_temp_default = config.get(CONF_TARGET_TEMP)
     target_temp_step = config.get(CONF_TARGET_TEMP_STEP)
     sync_clock_time_per_day = config.get(CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY)
@@ -439,8 +436,8 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
                     hass, name, broadlink_device, target_temp_default,
                     target_temp_step, operation_list,sync_clock_time_per_day)
                 ])
-    except:
-        _LOGGER.error("Failed to connect to Broadlink Hysen device MAC:%s, IP:%s", mac_addr,ip_addr)
+    except Exception as error:
+        _LOGGER.error("Failed to connect to Broadlink Hysen device MAC:%s, IP:%s, Error:%s", mac_addr,ip_addr, error)
 
 
 class BroadlinkHysenClimate(ClimateDevice):
@@ -464,6 +461,10 @@ class BroadlinkHysenClimate(ClimateDevice):
         self._auto_state = HYSEN_MANUALMODE    # Manual =0   #Auto, =1
         self._current_operation = STATE_OFF
         self._operation_list = operation_list
+
+        self._away_mode = False
+        self._awaymodeLastState = "STATE_OFF"
+
         self._is_heating_active = 0            # Demand = 1, No Demand = 0
         self._auto_override = 0                # Yes = 1, No = 0
         self._remote_lock = 0                  # Lock the local thermostat keypad 0 = No, Yes =1  
@@ -555,6 +556,11 @@ class BroadlinkHysenClimate(ClimateDevice):
         return self._operation_list
 
     @property
+    def is_away_mode_on(self):
+        """Return if away mode is on."""
+        return self._away_mode
+
+    @property
     def supported_features(self):
         """Return the list of supported features."""
         return SUPPORT_FLAGS
@@ -567,6 +573,7 @@ class BroadlinkHysenClimate(ClimateDevice):
         attr['sensor_mode'] = self._sensor_mode        
         attr['room_temp'] = self._room_temp
         attr['external_temp'] = self._external_temp        
+        attr['away_mode'] = self._away_mode       
         attr['heating_active'] = self._is_heating_active
         attr['auto_override'] = self._auto_override
         attr['external_sensor_temprange'] = self._external_sensor_temprange
@@ -611,6 +618,22 @@ class BroadlinkHysenClimate(ClimateDevice):
         """Set new opmode """
         self._current_operation = operation_mode
         self.set_operation_mode_command(operation_mode)
+        self.turn_away_mode_off
+        self.schedule_update_ha_state()
+
+    def turn_away_mode_on(self):
+        """Turn away mode on."""
+        if self._away_mode == False:
+            self._awaymodeLastState = self._current_operation
+            self.set_operation_mode(STATE_OFF)
+            self._away_mode = True
+        self.schedule_update_ha_state()
+
+    def turn_away_mode_off(self):
+        """Turn away mode off."""
+        if self._away_mode == True:
+            self.set_operation_mode(self._awaymodeLastState)
+            self._away_mode = False
         self.schedule_update_ha_state()
 
     def send_tempset_command(self, target_temperature):
