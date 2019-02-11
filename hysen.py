@@ -19,8 +19,8 @@ import datetime
 #climate:
 #  - platform: hysen
 #    name: House Thermostat
-#    host: 192.168.0.201
-#    mac: '34:EA:34:87:5B:7B'
+#    host: 192.168.0.xxx
+#    mac: '34:EA:44:97:5B:9B'
 #    target_temp_default: 20
 #    target_temp_step: 0.5
 #    scan_interval: 15
