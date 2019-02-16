@@ -19,8 +19,10 @@ import datetime
 #climate:
 #  - platform: hysen
 #    name: House Thermostat
-#    host: 192.168.0.1
-#    mac: '35:EA:34:88:5B:8B'
+#    host: 192.168.0.xx
+#    host_dns: dns.name.com
+#    host_port: 80
+#    mac: '34:EA:36:88:6B:7B'
 #    target_temp_default: 20
 #    target_temp_step: 0.5
 #    scan_interval: 15
@@ -184,9 +186,14 @@ CONF_TARGET_TEMP_STEP = 'target_temp_step'
 CONF_TIMEOUT = 'update_timeout'
 CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = 'sync_clock_time_per_day'
 
+CONF_DNSHOST = 'host_dns'
+CONF_HOST_PORT = 'host_port'
+
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+    vol.Optional(CONF_DNSHOST): cv.string,
     vol.Optional(CONF_HOST): vol.Match("^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"),
+    vol.Optional(CONF_HOST_PORT, default=80): vol.Range(min=1, max=65535),
     vol.Required(CONF_MAC): vol.Match("(?:[0-9a-fA-F]:?){12}"),
     vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): vol.Range(min=0, max=99),
     vol.Optional(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): vol.Range(min=5, max=99),
@@ -393,9 +400,18 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 
     """Get paramters for Hysen Climate device."""
     name = config.get(CONF_NAME)
+    dns_name = config.get(CONF_DNSHOST)
     ip_addr = config.get(CONF_HOST)
+    ip_port = config.get(CONF_HOST_PORT)
     mac_addr = config.get(CONF_MAC)
     timeout = config.get(CONF_TIMEOUT)
+
+    if (dns_name != None && ip_addr == None):
+        try:
+            ip_addr = socket.gethostbyname(dns_name)
+            _LOGGER.warning("Discovered Broadlink Hysen device address: %s, from name %s",ip_addr,dns_name)
+        except Exception as error:
+            _LOGGER.error("Failed resolve DNS name to IP for Broadlink Hysen device:%s, error:%s",dns_name,error)
 
     """Get Operation paramters for Hysen Climate device."""
     operation_list = DEFAULT_OPERATIONS_LIST
@@ -406,11 +422,11 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
     """Set up the Hysen Climate devices."""
     """If IP and Mac given try to directly connect """
     """If only Mac given try to discover connect """
-    broadlink_device=None;
+    broadlink_device = None;
     try:
-        if (ip_addr != ""):
+        if (ip_addr != None):
             blmac_addr = binascii.unhexlify(mac_addr.encode().replace(b':', b''))
-            broadlink_device = broadlink.hysen((ip_addr, 80), blmac_addr, None)
+            broadlink_device = broadlink.hysen((ip_addr, ip_port), blmac_addr, None)
         else:
             devices = broadlink.discover(timeout)
             devicecount = len(devices)
@@ -600,6 +616,7 @@ class BroadlinkHysenClimate(ClimateDevice):
 
     def turn_on(self):
         self._broadlink_device.set_power(HYSEN_POWERON)
+        self.turn_away_mode_off()
         return True
 
     def turn_off(self):
