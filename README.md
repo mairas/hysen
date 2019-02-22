@@ -14,9 +14,13 @@ can be found at https://community.home-assistant.io/t/beta-for-hysen-thermostats
 ## Installation
 
 1. Download the hysen directory of files.
-***** AS of 0.88 of Home Assistant
+
+As of 0.88 of Home Assistant 
+
 2. Copy the file into your home-assistant installation 
    'custom_components/hysen' folder.
+
+(NOTE for earlier HA versions create directory 'custom_components/climate' download climate.py into it and rename hysen.py)
 
 ## Configuration
 
