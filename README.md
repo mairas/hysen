@@ -26,12 +26,12 @@ As of 0.88 of Home Assistant
 
 Add the following in your `configuration.yaml` file:
 
-'climate:
+    climate:
     - platform: hysen
       name: Main Thermostat
       host: 192.168.X.X
-      mac: XX:XX:XX:XX:XX:XX
-'
+      mac: "XX:XX:XX:XX:XX:XX"
+
 NOTE : At the moment, you may have to setup the device Wifi connection with
 the horrible "Room Heat" app, that was supplied with the device.
 In test, if you setup the above with no IP and valid mac, e.g. 30:30:30:30:30:30 the service will fail to load the device, but will setup services that can be called to enable you to setup the device wifi properly.
