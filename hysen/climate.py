@@ -29,6 +29,7 @@ import datetime
 #    sync_clock_time_per_day: True
 #    update_timeout:5
 
+#sensor:
 #- platform: template
 #   sensors:
 #    house_thermostat_mainhousetemp:
@@ -49,6 +50,23 @@ import datetime
 #     friendly_name: "External Sensor Temp"
 #     value_template: "{{states.climate.house_thermostat.attributes.external_temp}}"
 #     unit_of_measurement: "°C"
+
+#switch:
+#- platform: template
+#   switches:
+#     thermostat_remote_lock:
+#        friendly_name: Keypad Lock
+#        value_template: "{{ is_state_attr('climate.house_thermostat', 'remote_lock', 1) }}"
+#        turn_on:
+#          service: climate.hysen_set_remotelock
+#          data:
+#            entity_id: climate.house_thermostat
+#            remotelock: 1
+#        turn_off:
+#          service: climate.hysen_set_remotelock
+#          data:
+#            entity_id: climate.house_thermostat
+#            remotelock: 0
 #*****************************************************************************************************************************
 from homeassistant.components.climate import (ClimateDevice, DOMAIN,ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_TARGET_TEMPERATURE,
                                               ATTR_TEMPERATURE,
@@ -233,7 +251,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
                 except socket.timeout as error:
                   _LOGGER.error("Failed to send Wifi setup to Broadlink Hysen Device(s).")
                   return False
-                _LOGGER.waring("Wifi setup to Broadlink Hysen Device(s) sent.")
+                _LOGGER.warning("Wifi setup to Broadlink Hysen Device(s) sent.")
                 try:
                   devices = broadlink.discover(timeout)
                   devicecount = len(devices)
