@@ -76,7 +76,7 @@ from homeassistant.const import (ATTR_ENTITY_ID,ATTR_TEMPERATURE, ATTR_UNIT_OF_M
 
 DEFAULT_NAME = 'Broadlink Hysen Climate'
 
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
@@ -551,7 +551,10 @@ class BroadlinkHysenClimate(ClimateDevice):
 
     async def async_added_to_hass(self):
         """Run when entity about to be added."""
-        await self._hass.async_add_executor_job(self._broadlink_device.auth)
+        try:
+            await self._hass.async_add_executor_job(self._broadlink_device.auth)
+        except Exception as error:
+            _LOGGER.error("Failed to Auth. Broadlink Hysen device, on adding to HA, %s",error)
 
     @property
     def available(self) -> bool:
@@ -691,15 +694,15 @@ class BroadlinkHysenClimate(ClimateDevice):
         """Turn away mode on."""
         if self._away_mode == False:
             self._awaymodeLastState = self._current_operation
-            self.set_operation_mode(STATE_OFF)
             self._away_mode = True
+            self.set_operation_mode_command(STATE_OFF)
         self.schedule_update_ha_state()
 
     def turn_away_mode_off(self):
         """Turn away mode off."""
         if self._away_mode == True:
-            self._away_mode = False
-            self.set_operation_mode(self._awaymodeLastState)
+            self._away_mode = False            
+            self.set_operation_mode_command(self._awaymodeLastState)
         self.schedule_update_ha_state()
 
     def send_tempset_command(self, target_temperature):
@@ -715,10 +718,10 @@ class BroadlinkHysenClimate(ClimateDevice):
                             _LOGGER.error(
                                 "Failed to send SetTemp command to Broadlink Hysen Device")
 
-    def send_power_command(self, target_state):
+    def send_power_command(self, target_state,remote_lock):
         for retry in range(DEFAULT_RETRY):
             try:
-                self._broadlink_device.set_power(target_state)
+                self._broadlink_device.set_power(target_state,remote_lock)
                 break
             except (socket.timeout, ValueError):
                 try:
@@ -744,14 +747,14 @@ class BroadlinkHysenClimate(ClimateDevice):
     def set_operation_mode_command(self, operation_mode):
         if operation_mode == STATE_HEAT:
             if self._power_state == HYSEN_POWEROFF:
-                self.send_power_command(HYSEN_POWERON)
+                self.send_power_command(HYSEN_POWERON,self._remote_lock)
             self.send_mode_command(HYSEN_MANUALMODE, self._loop_mode,self._sensor_mode)
         elif operation_mode == STATE_AUTO:
             if self._power_state == HYSEN_POWEROFF:
-                self.send_power_command(HYSEN_POWERON)
+                self.send_power_command(HYSEN_POWERON,self._remote_lock)
             self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode,self._sensor_mode)
         elif operation_mode == STATE_OFF:
-                  self.send_power_command(HYSEN_POWEROFF)
+                  self.send_power_command(HYSEN_POWEROFF,self._remote_lock)
         else:
             _LOGGER.error("Unknown command for Broadlink Hysen Device")
         return
