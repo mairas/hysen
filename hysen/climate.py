@@ -9,6 +9,7 @@ As discussed in https://community.home-assistant.io/t/floor-heat-thermostat/2990
 
 #climate:
 #  - platform: hysen
+#    scan_interval: 15
 #    device:
 #      house_thermostat:
 #        name: House Thermostat
@@ -17,8 +18,7 @@ As discussed in https://community.home-assistant.io/t/floor-heat-thermostat/2990
 #        host_port: 80
 #        mac: '34:EA:36:88:6B:7B'
 #        target_temp_default: 20
-#        target_temp_step: 0.5
-#        scan_interval: 15
+#        target_temp_step: 0.5        
 #        sync_clock_time_per_day: True
 #        current_temp_from_sensor_override: 0 # if this is set to 1 always use the internal sensor to report current temp, if 1 always use external sensor to report current temp.
 #        update_timeout:5
