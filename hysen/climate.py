@@ -192,7 +192,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 async def devices_from_config(domain_config, hass, broadlink):
-    broadlink_devices = {}
+    hass_devices = []
     for device_id, config in domain_config[CONF_DEVICES].items():
         # Get device-specific parameters
         name = config.get(CONF_NAME)
@@ -222,7 +222,11 @@ async def devices_from_config(domain_config, hass, broadlink):
         try:
             if (ip_addr != None):
                 blmac_addr = binascii.unhexlify(mac_addr.encode().replace(b':', b''))
-                broadlink_devices[device_id] = broadlink.hysen((ip_addr, ip_port), blmac_addr, None)
+                hass_devices.append(await create_broadlink_device(
+                    device_id, timeout, hass, name,
+                    broadlink.hysen((ip_addr, ip_port), blmac_addr, None),
+                    target_temp_default, target_temp_step, operation_list,
+                    sync_clock_time_per_day, get_current_temp_from_sensor_override))
             else:
                 devices = broadlink.discover(timeout)
                 devicecount = len(devices)
@@ -233,7 +237,10 @@ async def devices_from_config(domain_config, hass, broadlink):
                             revmac = [devicemac[i:i+2] for i in range(0, len(devicemac), 2)]
                             stringmac = revmac[5] +":"+ revmac[4] +":"+ revmac[3]+":"+ revmac[2]+":"+ revmac[1]+":"+ revmac[0]
                             if (stringmac.capitalize() == mac_addr.capitalize()) :
-                                broadlink_devices[device_id] = device
+                                hass_devices.append(await create_broadlink_device(
+                                    device_id, timeout, hass, name, device,
+                                    target_temp_default, target_temp_step, operation_list,
+                                    sync_clock_time_per_day, get_current_temp_from_sensor_override))
                                 _LOGGER.warning("Discovered Broadlink Hysen device : %s, at %s",stringmac,device.host[0])
                             else:
                                 _LOGGER.error("Broadlink Hysen device MAC:%s not found.",mac_addr)
@@ -242,19 +249,20 @@ async def devices_from_config(domain_config, hass, broadlink):
                     return []
         except Exception as error:
             _LOGGER.error("Failed to connect to Broadlink Hysen device MAC:%s, IP:%s, Error:%s", mac_addr,ip_addr, error)
-
-    hass_devices = []
-    for device_id, broadlink_device in broadlink_devices.items():
-        broadlink_device.timeout = timeout
-        broadlink_device.auth()
-        entity_id = async_generate_entity_id(ENTITY_ID_FORMAT, device_id, hass=hass)
-        hass_devices.append(
-            BroadlinkHysenClimate(
-                entity_id,
-                hass, name, broadlink_device, target_temp_default,
-                target_temp_step, operation_list,sync_clock_time_per_day,get_current_temp_from_sensor_override))
-
     return hass_devices
+
+async def create_broadlink_device(
+        device_id, timeout, hass, name, broadlink_device, target_temp_default,
+        target_temp_step, operation_list, sync_clock_time_per_day,
+        get_current_temp_from_sensor_override):
+    broadlink_device.timeout = timeout
+    broadlink_device.auth()
+    entity_id = async_generate_entity_id(ENTITY_ID_FORMAT, device_id, hass=hass)
+    return BroadlinkHysenClimate(
+        entity_id,
+        hass, name, broadlink_device, target_temp_default,
+        target_temp_step, operation_list, sync_clock_time_per_day,
+        get_current_temp_from_sensor_override)
 
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     """Set up the Broadlink Hysen Climate platform."""
