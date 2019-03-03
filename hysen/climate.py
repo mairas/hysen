@@ -76,7 +76,7 @@ from homeassistant.const import (ATTR_ENTITY_ID,ATTR_TEMPERATURE, ATTR_UNIT_OF_M
 
 DEFAULT_NAME = 'Broadlink Hysen Climate'
 
-VERSION = '1.0.1'
+VERSION = '1.0.2'
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
@@ -665,12 +665,12 @@ class BroadlinkHysenClimate(ClimateDevice):
             return False
 
     def turn_on(self):
-        self._broadlink_device.set_power(HYSEN_POWERON)
+        self.send_power_command(HYSEN_POWERON,self._remote_lock)
         self.turn_away_mode_off()
         return True
 
     def turn_off(self):
-        self._broadlink_device.set_power(HYSEN_POWEROFF)
+        self.send_power_command(HYSEN_POWEROFF,self._remote_lock)
         return True
 
     def set_temperature(self, **kwargs):
