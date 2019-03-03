@@ -43,7 +43,7 @@ from homeassistant.helpers.entity import async_generate_entity_id
 
 DEFAULT_NAME = 'Broadlink Hysen Climate'
 
-VERSION = '1.0.3'
+VERSION = '1.0.4'
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
