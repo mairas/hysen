@@ -43,7 +43,7 @@ from homeassistant.helpers.entity import async_generate_entity_id
 
 DEFAULT_NAME = 'Broadlink Hysen Climate'
 
-VERSION = '1.0.4'
+VERSION = '1.0.5'
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
@@ -865,11 +865,14 @@ class BroadlinkHysenClimate(ClimateDevice):
                     else:
                          self._current_operation = STATE_UNAVAILABLE
                          self._available = False
+                else:
+                    _LOGGER.error("Failed to get Update from Broadlink Hysen Device, GetFullStatus returned None!")
+                    self._current_operation = STATE_UNAVAILABLE
+                    self._available = False
 
             except socket.timeout as error:
                 if retry < 1:
                     _LOGGER.error("Failed to get Data from Broadlink Hysen Device:%s", error)
-                    self._power_state = HYSEN_POWEROFF
                     self._current_operation = STATE_UNAVAILABLE
                     self._room_temp = 0
                     self._external_temp = 0
