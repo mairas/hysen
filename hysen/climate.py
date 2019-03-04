@@ -870,7 +870,7 @@ class BroadlinkHysenClimate(ClimateDevice):
                     self._current_operation = STATE_UNAVAILABLE
                     self._available = False
 
-            except socket.timeout as error:
+            except Exception as error:
                 if retry < 1:
                     _LOGGER.error("Failed to get Data from Broadlink Hysen Device:%s", error)
                     self._current_operation = STATE_UNAVAILABLE
@@ -879,12 +879,14 @@ class BroadlinkHysenClimate(ClimateDevice):
                     self._available = False
                 return
 
-        """Sync the clock once per day if required."""
-        if self._sync_clock_time_per_day == True:
-            now_day_of_the_week = (datetime.datetime.today().weekday()) + 1
-            if self._current_day_of_week < now_day_of_the_week:
+        """Sync the clock once per day if required."""        
+        try:
+          if self._sync_clock_time_per_day == True:
+             now_day_of_the_week = (datetime.datetime.today().weekday()) + 1
+             if self._current_day_of_week < now_day_of_the_week:
                 currentDT = datetime.datetime.now()
                 self.set_time(currentDT.hour, currentDT.minute, currentDT.second, now_day_of_the_week)
                 self._current_day_of_week = now_day_of_the_week
                 _LOGGER.info("Broadlink Hysen Device Clock Sync Success....")
-
+        except Exception as error:
+          _LOGGER.error("Failed to Clock Sync Hysen Device:%s", error)
