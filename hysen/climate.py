@@ -31,19 +31,20 @@ import socket
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
 import datetime
+import time
+import random
 
-from homeassistant.components.climate import (ClimateDevice, DOMAIN,ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SUPPORT_TARGET_TEMPERATURE,
-                                              ATTR_TEMPERATURE,
-                                              SUPPORT_OPERATION_MODE, SUPPORT_ON_OFF,SUPPORT_AWAY_MODE,STATE_HEAT,STATE_AUTO)
+from homeassistant.components.climate import (ClimateDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA)
 
-from homeassistant.const import (ATTR_ENTITY_ID,ATTR_TEMPERATURE, ATTR_UNIT_OF_MEASUREMENT,
-                                 CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE,STATE_OFF,STATE_ON,STATE_UNAVAILABLE)
+from homeassistant.components.climate.const import (DOMAIN, SUPPORT_TARGET_TEMPERATURE, SUPPORT_OPERATION_MODE, SUPPORT_ON_OFF, SUPPORT_AWAY_MODE, STATE_HEAT, STATE_AUTO)
+
+from homeassistant.const import (ATTR_TEMPERATURE, ATTR_ENTITY_ID, ATTR_UNIT_OF_MEASUREMENT, CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE, STATE_OFF, STATE_ON, STATE_UNAVAILABLE)
 
 from homeassistant.helpers.entity import async_generate_entity_id
 
 DEFAULT_NAME = 'Broadlink Hysen Climate'
 
-VERSION = '1.0.5'
+VERSION = '1.0.6'
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
@@ -824,6 +825,7 @@ class BroadlinkHysenClimate(ClimateDevice):
 
     def update(self):
         """Get the latest data from the thermostat."""
+        time.sleep(random.uniform(0.1, 0.5))
         for retry in range(DEFAULT_RETRY):
             try:
                 self._HysenData = self._broadlink_device.get_full_status()
