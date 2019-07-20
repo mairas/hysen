@@ -11,26 +11,6 @@ integrated to the Home Assistant project.
 Discussion on the module (and the preceding `broadlinkHysen.py` module)
 can be found at https://community.home-assistant.io/t/beta-for-hysen-thermostats-powered-by-broadlink/56267/1 .
 
-## Installation
-
-### HACS
-
-The easiest way to add this to your Homeassistant installation is using [HACS](https://custom-components.github.io/hacs/) and add this repository as a custom repository.
-
-### Manual
-
-THIS CODE ONLY WORK ON VERSION 0.80 AND ABOVE OF HA
-
-1. Download the hysen directory of files.
-
-As of 0.88 of Home Assistant
-
-2. Copy the `climate.py` file into your home-assistant installation
-   'custom_components/hysen' folder.
-
-(NOTE: for earlier HA versions >=0.80, create directory `custom_components/climate`,
- download `climate.py` into it and rename it to `hysen.py`.)
-
 ## Configuration
 
 Add something similar to the following in your `configuration.yaml` file:
