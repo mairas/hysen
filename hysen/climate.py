@@ -39,13 +39,14 @@ from homeassistant.const import (ATTR_TEMPERATURE, ATTR_ENTITY_ID, ATTR_UNIT_OF_
 
 from homeassistant.components.climate import (ClimateDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA)
 
-from homeassistant.components.climate.const import (DOMAIN, SUPPORT_TARGET_TEMPERATURE,SUPPORT_PRESET_MODE, HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO, PRESET_AWAY)
+from homeassistant.components.climate.const import (DOMAIN, SUPPORT_TARGET_TEMPERATURE,SUPPORT_PRESET_MODE, HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO, PRESET_AWAY,
+PRESET_NONE)
 
 from homeassistant.helpers.entity import async_generate_entity_id
 
 DEFAULT_NAME = 'Hysen Thermostat Controller'
 
-VERSION = '2.0.0'
+VERSION = '2.0.1'
 
 REQUIREMENTS = ['broadlink==0.9.0']
 
@@ -622,7 +623,7 @@ class BroadlinkHysenClimate(ClimateDevice):
     def preset_modes(self):
         """Return valid preset modes."""
         return [
-            PRESET_AWAY,
+            PRESET_AWAY,PRESET_NONE
         ]
 
     @property
@@ -659,12 +660,12 @@ class BroadlinkHysenClimate(ClimateDevice):
 
     def turn_on(self):
         self.send_power_command(HYSEN_POWERON,self._remote_lock)
-        self.set_preset_mode()
+        self.set_preset_mode(PRESET_NONE)
         return True
 
     def turn_off(self):
         self.send_power_command(HYSEN_POWEROFF,self._remote_lock)
-        self.set_preset_mode()
+        self.set_preset_mode(PRESET_NONE)
         return True
 
     def set_temperature(self, **kwargs):
@@ -679,18 +680,20 @@ class BroadlinkHysenClimate(ClimateDevice):
         """Set new opmode """
         self._current_operation = operation_mode
         if self._away_mode == True:
-            self.turn_away_mode_off()
+            self.set_preset_mode(PRESET_NONE)
         else:
             self.set_operation_mode_command(operation_mode)
         self.schedule_update_ha_state()
 
     def set_preset_mode(self, preset_mode):
+        if self._power_state == 0: 
+            return
         if preset_mode == PRESET_AWAY:
             if self._away_mode == False:
                 self._awaymodeLastState = self._current_operation
                 self._away_mode = True
                 self.set_operation_mode_command(HVAC_MODE_OFF)
-        elif preset_mode is None:
+        elif preset_mode == PRESET_NONE:
             if self._away_mode == True:
                 self._away_mode = False
                 self.set_operation_mode_command(self._awaymodeLastState)
