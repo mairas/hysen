@@ -48,7 +48,7 @@ DEFAULT_NAME = 'Hysen Thermostat Controller'
 
 VERSION = '2.0.3'
 
-REQUIREMENTS = ['broadlink==0.13.0']
+REQUIREMENTS = ['broadlink==0.13.2']
 
 _LOGGER = logging.getLogger(__name__)
 
