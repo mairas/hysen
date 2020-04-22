@@ -46,7 +46,7 @@ from homeassistant.helpers.entity import async_generate_entity_id
 
 DEFAULT_NAME = 'Hysen Thermostat Controller'
 
-VERSION = '2.0.3'
+VERSION = '2.0.4'
 
 REQUIREMENTS = ['broadlink==0.13.2']
 
