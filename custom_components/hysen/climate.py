@@ -46,7 +46,7 @@ from homeassistant.helpers.entity import async_generate_entity_id
 
 DEFAULT_NAME = 'Hysen Thermostat Controller'
 
-VERSION = '2.0.5'
+VERSION = '2.0.6'
 
 REQUIREMENTS = ['broadlink==0.13.2']
 
@@ -161,7 +161,7 @@ DEFAULT_OPERATIONS_LIST = [HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO]
 HYSEN_POWERON = 1
 HYSEN_POWEROFF = 0
 HYSEN_MANUALMODE = 0
-HYSEN_AUTOMODE = 3
+HYSEN_AUTOMODE = 1
 
 DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
