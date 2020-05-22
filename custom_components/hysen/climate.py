@@ -37,8 +37,10 @@ import random
 
 from homeassistant.const import (ATTR_TEMPERATURE, ATTR_ENTITY_ID, ATTR_UNIT_OF_MEASUREMENT, CONF_NAME, CONF_HOST, CONF_MAC, CONF_TIMEOUT, CONF_CUSTOMIZE, STATE_UNAVAILABLE)
 
-from homeassistant.components.climate import PLATFORM_SCHEMA,ENTITY_ID_FORMAT, ClimateEntity
-#from homeassistant.components.climate import (ClimateDevice, ENTITY_ID_FORMAT, PLATFORM_SCHEMA)
+try:
+    from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA, ENTITY_ID_FORMAT
+except ImportError:
+    from homeassistant.components.climate import ClimateDevice as ClimateEntity, PLATFORM_SCHEMA, ENTITY_ID_FORMAT
 
 from homeassistant.components.climate.const import (DOMAIN, SUPPORT_TARGET_TEMPERATURE,SUPPORT_PRESET_MODE, HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO, PRESET_AWAY,
 PRESET_NONE,CURRENT_HVAC_HEAT, CURRENT_HVAC_IDLE)
@@ -47,7 +49,7 @@ from homeassistant.helpers.entity import async_generate_entity_id
 
 DEFAULT_NAME = 'Hysen Thermostat Controller'
 
-VERSION = '2.0.9'
+VERSION = '2.1.0'
 
 
 _LOGGER = logging.getLogger(__name__)
