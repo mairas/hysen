@@ -10,7 +10,6 @@ Author: Mark Carter
 
 #climate:
 #  - platform: hysen
-#    scan_interval: 15
 #    device:
 #      house_thermostat:
 #        name: House Thermostat
@@ -76,7 +75,7 @@ SUPPORT_HVAC = [HVAC_MODE_AUTO, HVAC_MODE_HEAT, HVAC_MODE_OFF]
 SUPPORT_PRESET = [PRESET_NONE, PRESET_AWAY]
 DEFAULT_OPERATIONS_LIST = [HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO]
 
-SCAN_INTERVAL = timedelta(seconds=10)
+SCAN_INTERVAL = timedelta(seconds=20)
 MIN_TIME_BETWEEN_SCANS = SCAN_INTERVAL
 MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(milliseconds=100)
 
