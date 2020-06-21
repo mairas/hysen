@@ -76,7 +76,7 @@ SUPPORT_HVAC = [HVAC_MODE_AUTO, HVAC_MODE_HEAT, HVAC_MODE_OFF]
 SUPPORT_PRESET = [PRESET_NONE, PRESET_AWAY]
 DEFAULT_OPERATIONS_LIST = [HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO]
 
-SCAN_INTERVAL = timedelta(seconds=10)
+SCAN_INTERVAL = timedelta(seconds=20)
 MIN_TIME_BETWEEN_SCANS = SCAN_INTERVAL
 MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(milliseconds=100)
 
@@ -473,7 +473,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
                weekend = [weekend_period_1, weekend_period_2]
                try:
                     thermostat.set_schedule(weekday, weekend)
-               except Expection as error:
+               except Exception as error:
                    _LOGGER.error("Failed to send Time schedule setup to Broadlink Hysen Device:%s,:",entity_id,error)
                    return False
                _LOGGER.info("Time schedule sent to Broadlink Hysen Device:%s",entity_id)
@@ -492,7 +492,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
                 tamper_lock = service.data.get(CONFIG_REMOTELOCK)
                 try:
                   thermostat.set_lock(tamper_lock)
-                except Expection as error:
+                except Exception as error:
                   _LOGGER.error("Failed to send Tamper Lock setting to Broadlink Hysen Device:%s,:",entity_id,error)
                   return False
                 _LOGGER.info("Remote Lock setting sent to Broadlink Hysen Device:%s",entity_id)
@@ -753,7 +753,7 @@ class BroadlinkHysenClimate(ClimateEntity):
                 except socket.timeout:
                     try:
                         self._broadlink_device.auth()
-                    except Expection as error:
+                    except Exception as error:
                             if retry == DEFAULT_RETRY-1:
                                 _LOGGER.error(
                                     "Failed to send SetTemp command to Broadlink Hysen Device:%s, :%s",self.entity_id,error)
@@ -767,7 +767,7 @@ class BroadlinkHysenClimate(ClimateEntity):
                 except socket.timeout:
                     try:
                         self._broadlink_device.auth()
-                    except Expection as error:
+                    except Exception as error:
                         if retry == DEFAULT_RETRY-1:
                             _LOGGER.error(
                                 "Failed to send Power command to Broadlink Hysen Device:%s, :%s",self.entity_id,error)
@@ -935,7 +935,8 @@ class BroadlinkHysenClimate(ClimateEntity):
                         _LOGGER.error("Failed to get Update from Broadlink Hysen Device: %s, GetFullStatus returned None!",self.entity_id)
                         self._current_operation = STATE_UNAVAILABLE
                         self._available = False
-
+                except OSError as error:
+                    _LOGGER.error("Failed to get Data from Broadlink Hysen Device:%s,:OSError: %s",self.entity_id,error)
                 except Exception as error:
                     if retry < 1:
                         _LOGGER.error("Failed to get Data from Broadlink Hysen Device:%s,:%s",self.entity_id,error)
@@ -1056,6 +1057,7 @@ def discover(timeout=None, local_ip_address=None, discover_ip_address='255.255.2
         name = responsepacket[0x40:].split(b'\x00')[0].decode('utf-8')
         cloud = bool(responsepacket[-1])
         device = gendevice(devtype, host, mac, name=name, cloud=cloud)
+        cs.close()
         return device
 
     while (time.time() - starttime) < timeout:
@@ -1063,6 +1065,7 @@ def discover(timeout=None, local_ip_address=None, discover_ip_address='255.255.2
         try:
             response = cs.recvfrom(1024)
         except socket.timeout:
+            cs.close()
             return devices
         responsepacket = bytearray(response[0])
         host = response[1]
@@ -1072,7 +1075,8 @@ def discover(timeout=None, local_ip_address=None, discover_ip_address='255.255.2
         cloud = bool(responsepacket[-1])
         device = gendevice(devtype, host, mac, name=name, cloud=cloud)
         devices.append(device)
-    return devices
+        cs.close()    
+        return devices
 
 
 class device:
@@ -1087,10 +1091,6 @@ class device:
         self.iv = bytearray(
             [0x56, 0x2e, 0x17, 0x99, 0x6d, 0x09, 0x3d, 0x28, 0xdd, 0xb3, 0xba, 0x69, 0x5a, 0x2e, 0x6f, 0x58])
         self.id = bytearray([0, 0, 0, 0])
-        self.cs = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.cs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.cs.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.cs.bind(('', 0))
         self.type = "Unknown"
         self.lock = threading.Lock()
 
@@ -1208,15 +1208,21 @@ class device:
 
         start_time = time.time()
         with self.lock:
+            cs = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            cs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             while True:
                 try:
-                    self.cs.sendto(packet, self.host)
-                    self.cs.settimeout(1)
-                    response = self.cs.recvfrom(2048)
+                    cs.sendto(packet, self.host)
+                    cs.settimeout(1)
+                    response = cs.recvfrom(2048)
                     break
                 except socket.timeout:
                     if (time.time() - start_time) > self.timeout:
+                        cs.close()
                         raise
+                finally:
+                    cs.close()
+            cs.close()
         return bytearray(response[0])
 
 
@@ -1265,8 +1271,14 @@ class hysen(device):
         except Exception as e:
             print("EXCEPTION(calculate): {}".format(e))
 
-    def send_request(self, input_payload):
+    def get_fwversion(self):
+        packet = bytearray([0x68])
+        response = self.send_packet(0x6a, packet)
+        check_error(response[0x22:0x24])
+        payload = self.decrypt(response[0x38:])
+        return payload[0x4] | payload[0x5] << 8 
 
+    def send_request(self, input_payload):
         crc = self.calculate_crc16(bytes(input_payload))
 
         # first byte is length, +2 for CRC16
