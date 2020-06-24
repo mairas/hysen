@@ -267,7 +267,7 @@ async def devices_from_config(domain_config, hass):
                             devicemac = devicemac.upper()
                             if (devicemac == mac_addr.upper()):
                                 newhassdevice =  await create_hysen_device(device_id, hass, name,
-                                    broadlink_hysen_climate_device((ip_addr, ip_port), devicemac,timeout),
+                                    broadlink_hysen_climate_device((hysen_device.host[0], hysen_device.host[1]), devicemac,timeout),
                                     target_temp_default, target_temp_step, operation_list,
                                     sync_clock_time_per_day, get_current_temp_from_sensor_override)    
                                 if (newhassdevice is not None):
