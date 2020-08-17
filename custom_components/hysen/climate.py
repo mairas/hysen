@@ -22,10 +22,11 @@ Author: Mark Carter
 #        sync_clock_time_per_day: True
 #        current_temp_from_sensor_override: 0 # if this is set to 1 always use the internal sensor to report current temp, if 1 always use external sensor to report current temp.
 #        update_timeout: 10
+#        use_HA_for_hysteresis: True
 
 #*****************************************************************************************************************************
 DEFAULT_NAME = 'Hysen Thermostat Controller'
-VERSION = '2.1.8'
+VERSION = '2.1.9'
 
 
 import asyncio
@@ -192,7 +193,7 @@ DEFAULT_TARGET_TEMP = 20
 DEFAULT_TARGET_TEMP_STEP = 1
 DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = False
 
-DEAFULT_CONF_USE_HA_FOR_HYSTERSIS = True
+DEAFULT_CONF_USE_HA_FOR_HYSTERSIS = False
 DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT = 2
 DEAFULT_CONF_USE_HA_FOR_HYSTERSISA_BAIS = 0.5
 
