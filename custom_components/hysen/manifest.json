@@ -1,6 +1,7 @@
 {
   "domain": "hysen",
   "name": "Hysen Thermostat Controller",
+  "version": "2.2.3",
   "documentation": "",
   "requirements": "",
   "dependencies": [
@@ -8,4 +9,3 @@
   ],
   "codeowners": ["@markcarter", "@iwantto.com"]
 }
-
