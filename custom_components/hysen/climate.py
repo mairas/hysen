@@ -22,11 +22,10 @@ Author: Mark Carter
 #        sync_clock_time_per_day: True
 #        current_temp_from_sensor_override: 0 # if this is set to 1 always use the internal sensor to report current temp, if 1 always use external sensor to report current temp.
 #        update_timeout: 10
-#        use_HA_for_hysteresis: True
 
 #*****************************************************************************************************************************
 DEFAULT_NAME = 'Hysen Thermostat Controller'
-VERSION = '2.1.9'
+VERSION = '2.2.3'
 
 
 import asyncio
@@ -76,8 +75,7 @@ SUPPORT_HVAC = [HVAC_MODE_AUTO, HVAC_MODE_HEAT, HVAC_MODE_OFF]
 SUPPORT_PRESET = [PRESET_NONE, PRESET_AWAY]
 DEFAULT_OPERATIONS_LIST = [HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO]
 
-SCAN_INTERVAL = timedelta(seconds=20)
-MIN_TIME_BETWEEN_SCANS = SCAN_INTERVAL
+MIN_TIME_BETWEEN_SCANS = timedelta(seconds=30)
 MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(milliseconds=100)
 
 DEFAULT_TIMEOUT = 5
@@ -194,8 +192,10 @@ DEFAULT_TARGET_TEMP_STEP = 1
 DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = False
 
 DEAFULT_CONF_USE_HA_FOR_HYSTERSIS = False
-DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT = 2
-DEAFULT_CONF_USE_HA_FOR_HYSTERSISA_BAIS = 0.5
+DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT_HIGH = 3
+DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT_LOW = 10
+DEAFULT_CONF_USE_HA_FOR_HYSTERSIS_BAIS_HIGH = 0.0
+DEAFULT_CONF_USE_HA_FOR_HYSTERSIS_BAIS_LOW = 0.5
 
 CONF_DEVICES = 'devices'
 CONF_TARGET_TEMP = 'target_temp_default'
@@ -204,6 +204,11 @@ CONF_TIMEOUT = 'update_timeout'
 CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = 'sync_clock_time_per_day'
 CONF_GETCURERNTTEMP_FROM_SENSOR = "current_temp_from_sensor_override"
 CONF_USE_HA_FOR_HYSTERSIS="use_HA_for_hysteresis"
+CONF_HYSTERSIS_SAMPLE_COUNT_HIGH = "hysteresis_high_sample_count"
+CONF_HYSTERSIS_SAMPLE_COUNT_LOW = "hysteresis_low_sample_count"
+CONF_HYSTERSIS_BAIS_HIGH = "hysteresis_high_temp_bais"
+CONF_HYSTERSIS_BAIS_LOW = "hysteresis_low_temp_bais"
+
 
 CONF_DNSHOST = 'host_dns'
 CONF_HOST_PORT = 'host_port'
@@ -222,6 +227,10 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
             vol.Optional(CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY, default=DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY): cv.boolean,
             vol.Optional(CONF_GETCURERNTTEMP_FROM_SENSOR, default=-1): vol.Range(min=-1, max=1),
             vol.Optional(CONF_USE_HA_FOR_HYSTERSIS, default=DEAFULT_CONF_USE_HA_FOR_HYSTERSIS): cv.boolean,
+            vol.Optional(CONF_HYSTERSIS_SAMPLE_COUNT_HIGH, default=DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT_HIGH): vol.Range(min=0, max=99),
+            vol.Optional(CONF_HYSTERSIS_SAMPLE_COUNT_LOW, default=DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT_LOW): vol.Range(min=0, max=99),
+            vol.Optional(CONF_HYSTERSIS_BAIS_HIGH, default=DEAFULT_CONF_USE_HA_FOR_HYSTERSIS_BAIS_HIGH): vol.Coerce(float),
+            vol.Optional(CONF_HYSTERSIS_BAIS_LOW, default=DEAFULT_CONF_USE_HA_FOR_HYSTERSIS_BAIS_LOW): vol.Coerce(float),
         })
     },
 })
@@ -236,10 +245,12 @@ async def devices_from_config(domain_config, hass):
         ip_port = config.get(CONF_HOST_PORT)
         mac_addr = config.get(CONF_MAC)
         timeout = config.get(CONF_TIMEOUT)
-        use_HA_for_hysteresis = config.get(CONF_USE_HA_FOR_HYSTERSIS)
 
-        HA_hysteresis_bais = DEAFULT_CONF_USE_HA_FOR_HYSTERSISA_BAIS
-        HA_hysteresis_sample_count_target = DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT
+        use_HA_for_hysteresis = config.get(CONF_USE_HA_FOR_HYSTERSIS)
+        HA_hysteresis_bais_high = config.get(CONF_HYSTERSIS_BAIS_HIGH)
+        HA_hysteresis_bais_low = config.get(CONF_HYSTERSIS_BAIS_LOW)
+        HA_hysteresis_sample_count_target_high = config.get(CONF_HYSTERSIS_SAMPLE_COUNT_HIGH)
+        HA_hysteresis_sample_count_target_low = config.get(CONF_HYSTERSIS_SAMPLE_COUNT_LOW)
 
         if (dns_name != None and ip_addr == None):
             try:
@@ -264,7 +275,7 @@ async def devices_from_config(domain_config, hass):
                 newhassdevice =  await create_hysen_device(device_id, hass, name,
                     broadlink_hysen_climate_device((ip_addr, ip_port), blmac_addr,timeout),
                     target_temp_default, target_temp_step, operation_list,
-                    sync_clock_time_per_day, get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais,HA_hysteresis_sample_count_target)    
+                    sync_clock_time_per_day, get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais_high,HA_hysteresis_bais_low,HA_hysteresis_sample_count_target_low,HA_hysteresis_sample_count_target_high)    
                 if (newhassdevice is not None):
                     hass_devices.append(newhassdevice)
                 else:
@@ -280,7 +291,7 @@ async def devices_from_config(domain_config, hass):
                                 newhassdevice =  await create_hysen_device(device_id, hass, name,
                                     broadlink_hysen_climate_device((hysen_device.host[0], hysen_device.host[1]), devicemac,timeout),
                                     target_temp_default, target_temp_step, operation_list,
-                                    sync_clock_time_per_day, get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais,HA_hysteresis_sample_count_target)    
+                                    sync_clock_time_per_day, get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais_high,HA_hysteresis_bais_low,HA_hysteresis_sample_count_target_low,HA_hysteresis_sample_count_target_high)    
                                 if (newhassdevice is not None):
                                     hass_devices.append(newhassdevice)
                                     _LOGGER.warning("Discovered Broadlink Hysen Climate device : %s, at %s",devicemac,hysen_device.host[0])
@@ -299,7 +310,7 @@ async def devices_from_config(domain_config, hass):
 async def create_hysen_device(device_id,hass,name,
                               broadlink_hysen_climate_device,
                               target_temp_default,target_temp_step,operation_list,
-                              sync_clock_time_per_day,get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais,HA_hysteresis_sample_count_target):
+                              sync_clock_time_per_day,get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais_high,HA_hysteresis_bais_low,HA_hysteresis_sample_count_target_low,HA_hysteresis_sample_count_target_high):
     newhassdevice = None
     entity_id = async_generate_entity_id(ENTITY_ID_FORMAT, device_id, hass=hass)
     
@@ -309,7 +320,7 @@ async def create_hysen_device(device_id,hass,name,
         newhassdevice = HASS_Hysen_Climate_Device(entity_id,
                                      hass, name, broadlink_hysen_climate_device,
                                      target_temp_default,target_temp_step,operation_list,
-                                     sync_clock_time_per_day,get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais,HA_hysteresis_sample_count_target)
+                                     sync_clock_time_per_day,get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais_high,HA_hysteresis_bais_low,HA_hysteresis_sample_count_target_low,HA_hysteresis_sample_count_target_high)
     except Exception as error:
         _LOGGER.error("Failed to Authenticate with Broadlink Hysen Climate device:%s , %s ",entity_id, error)
     return newhassdevice
@@ -329,6 +340,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 
     #Example for service call (hysen_config_wifi) setting
     """
+    data:
     ssid: yoursid
     password: yourpassword
     sectype: 4 
@@ -374,6 +386,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 
    #Example for service call (hysen_set_advanced) setting
     """
+    data:
     entity_id: climate.house_thermostat 
     poweron_mem: 1
     """
@@ -408,23 +421,25 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 
     #Example sfor service call (hysen_set_heatingschedule)
     """
+    service: climate.hysen_set_timeschedule
+    data:
     entity_id: climate.house_thermostat
-    week_period1_start: 06:30 
-    week_period1_temp:  20.5
-    week_period2_start: 09:00
-    week_period2_temp: 17.0
-    week_period3_start: 13:00
-    week_period3_temp: 17.0 
-    week_period4_start: 13:00
-    week_period4_temp: 17.0
+    week_period1_start: 05:30 
+    week_period1_temp:  18.0
+    week_period2_start: 07:00
+    week_period2_temp: 20.5
+    week_period3_start: 11:00
+    week_period3_temp: 20.5
+    week_period4_start: 14:00
+    week_period4_temp: 20.5
     week_period5_start: 17:00
     week_period5_temp: 20.5
-    week_period6_start: 22:00
-    week_period6_temp: 17.0
+    week_period6_start: 22:30
+    week_period6_temp: 16.0
     weekend_period1_start: 7:30
     weekend_period1_temp: 20.5
     weekend_period2_start: 22:30
-    weekend_period2_temp: 17.0
+    weekend_period2_temp: 16.0
     """
     async def async_hysen_set_time_schedule(thermostat,service):
                entity_id = service.data.get(ATTR_ENTITY_ID)
@@ -494,6 +509,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 
     #Example for service call (hysen_set_remotelock) setting
     """
+    data:
     entity_id: climate.house_thermostat
     remotelock: 1
     """
@@ -540,7 +556,7 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
 ######################################################################################################################################
 class HASS_Hysen_Climate_Device(ClimateEntity):
     def __init__(self, entity_id, hass, name, broadlink_hysen_climate_device, target_temp_default,
-                 target_temp_step, operation_list,sync_clock_time_per_day,get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais,HA_hysteresis_sample_count_target):
+                 target_temp_step, operation_list,sync_clock_time_per_day,get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais_high,HA_hysteresis_bais_low,HA_hysteresis_sample_count_target_low,HA_hysteresis_sample_count_target_high):
         """Initialize the Broadlink Hysen Climate device."""
         self.entity_id = entity_id
         self._hass = hass
@@ -548,11 +564,14 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
         self._HysenData = []
         self._broadlink_hysen_climate_device = broadlink_hysen_climate_device
 
+
         self._sync_clock_time_per_day = sync_clock_time_per_day
 
         self._use_HA_for_hysteresis = use_HA_for_hysteresis
-        self._HA_hysteresis_bais = HA_hysteresis_bais
-        self._HA_hysteresis_sample_count_target = HA_hysteresis_sample_count_target
+        self._HA_hysteresis_bais_high = HA_hysteresis_bais_high
+        self._HA_hysteresis_bais_low = HA_hysteresis_bais_low
+        self._HA_hysteresis_sample_count_target_low = HA_hysteresis_sample_count_target_low
+        self._HA_hysteresis_sample_count_target_high = HA_hysteresis_sample_count_target_high
         self._use_HA_for_hysteresis_sample_count = 0
 
         self._current_day_of_week = 0
@@ -571,9 +590,9 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
         self._away_mode = False
         self._awaymodeLastState = HVAC_MODE_OFF
 
-        self._is_heating_active = 0
-        self._auto_override = 0
-        self._remote_lock = 0
+        self._is_heating_active = None
+        self._auto_override = None
+        self._remote_lock = None
 
         self._loop_mode = DEFAULT_LOOPMODE
         self._sensor_mode = DEFAULT_SENSORMODE
@@ -585,19 +604,19 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
 
         self._external_sensor_temprange = DEFAULT_EXTERNALSENSORTEMPRANGE
         self._deadzone_sensor_temprange = DEFAULT_DEADZONESENSORTEMPRANGE
-        self._room_temp = 0
-        self._external_temp = 0
+        self._room_temp = None
+        self._external_temp = None
 
-        self._clock_hour = 0
-        self._clock_min = 0
-        self._clock_sec = 0
-        self._day_of_week = 1
+        self._clock_hour = None
+        self._clock_min = None
+        self._clock_sec = None
+        self._day_of_week = None
 
         self._week_day = ""
         self._week_end = ""
         
         self._update_error_count = 0
-        self._available = True  # Assume its up and running
+        self._available = True 
 
 ######################################################################################################################################
 ######################################################################################################################################
@@ -689,7 +708,7 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
             return CURRENT_HVAC_IDLE
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return device specific state attributes."""
         attr = {}
         attr['sfw_version'] = VERSION
@@ -867,7 +886,7 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
             self._update_error_count = 0
             if self._HysenData is not None:
                 self._room_temp = self._HysenData['room_temp']
-                self._target_temperature = self._HysenData['thermostat_temp']
+                self._target_temperature = self._HysenData['thermostat_temp']                
                 self._min_temp = self._HysenData['svl']
                 self._max_temp = self._HysenData['svh']
                 self._loop_mode = int(self._HysenData['loop_mode'])-1
@@ -894,41 +913,54 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
                 self._available = True
                 
                 if self._power_state == HYSEN_POWERON:
-                    if self._auto_state == HYSEN_AUTOMODE:
-                        self._current_operation = HVAC_MODE_AUTO
+                    if self._auto_state == HYSEN_MANUALMODE:
+                        self._current_operation = HVAC_MODE_HEAT
                     else:
-                        self._current_operation = HVAC_MODE_HEAT                
+                        self._current_operation = HVAC_MODE_AUTO
                     
                     ##################################################################
                     #Add HA hysteresis control
                     if self._use_HA_for_hysteresis:
-                        newtarget_temp = None
+                        Control_active = False
+                        newtarget_temp = 0 
+                        original_set_target_temp = self._target_temperature
+                        #_LOGGER.warning("HA_for_hysteresis_sample_count:%s",self._use_HA_for_hysteresis_sample_count)
                         #Heating On
-                        if (self._is_heating_active==1) and (self._room_temp >= (self._target_temperature + self._HA_hysteresis_bais)):
+                        if (self._is_heating_active==1) and (self._room_temp >= (self._target_temperature + self._HA_hysteresis_bais_high)):
                             self._use_HA_for_hysteresis_sample_count = self._use_HA_for_hysteresis_sample_count + 1
-                            if (self._use_HA_for_hysteresis_sample_count) >= (self._HA_hysteresis_sample_count_target):
+                            if (self._use_HA_for_hysteresis_sample_count) >= (self._HA_hysteresis_sample_count_target_high):
                                 #reduce target_temperature by 
-                                newtarget_temp = (self._target_temperature - (self._deadzone_sensor_temprange + (self._HA_hysteresis_bais * self._deadzone_sensor_temprange)))
-                                self._is_heating_active = 0 #Assume Heating with go off
+                                newtarget_temp = (self._target_temperature - (self._deadzone_sensor_temprange + ((self._HA_hysteresis_bais_high if not self._HA_hysteresis_bais_high==0 else 0.5) * self._deadzone_sensor_temprange)))
+                                self._is_heating_active = 0 #Assume Heating will go off
+                                Control_active = True
                         
                         #Heating Off                        
-                        elif (self._is_heating_active==0) and (self._room_temp <= (self._target_temperature - self._HA_hysteresis_bais)):
-                            self._use_HA_for_hysteresis_sample_count = self._use_HA_for_hysteresis_sample_count + 1
-                            if (self._use_HA_for_hysteresis_sample_count) >= (self._HA_hysteresis_sample_count_target):
+                        elif (self._is_heating_active==0) and (self._room_temp <= (self._target_temperature - self._HA_hysteresis_bais_low)):
+                            self._use_HA_for_hysteresis_sample_count = self._use_HA_for_hysteresis_sample_count + 1                            
+                            if (self._use_HA_for_hysteresis_sample_count) >= (self._HA_hysteresis_sample_count_target_low):
                                 #increase target_temperature by 
-                                newtarget_temp = (self._target_temperature + (self._deadzone_sensor_temprange + (self._HA_hysteresis_bais * self._deadzone_sensor_temprange)))
-                                self._is_heating_active = 1 #Assume Heating with go on
+                                newtarget_temp = (self._target_temperature + (self._deadzone_sensor_temprange + ((self._HA_hysteresis_bais_low if not self._HA_hysteresis_bais_low==0 else 0.5) * self._deadzone_sensor_temprange)))
+                                self._is_heating_active = 1 #Assume Heating will go on
+                                Control_active = True
                         else:
-                            if (self._use_HA_for_hysteresis_sample_count>0): self._use_HA_for_hysteresis_sample_count = self._use_HA_for_hysteresis_sample_count - 1
+                            if (self._use_HA_for_hysteresis_sample_count>0): 
+                                self._use_HA_for_hysteresis_sample_count = self._use_HA_for_hysteresis_sample_count - 1
                         
-
-                        if newtarget_temp is not None:
-                           original_set_target_temp=self._target_temperature
+                        if Control_active == True:
                            self._broadlink_hysen_climate_device.set_temp(newtarget_temp) # Force thermostat change in heating state
-                           self._use_HA_for_hysteresis_sample_count=0
-                           _LOGGER.error("HA force thermostate state change in heating / Current_temp %s Current_target temp %s, HA changing Set Temp to %s",self._room_temp,original_set_target_temp,newtarget_temp)
-                           time.sleep(2)
-                           self._broadlink_hysen_climate_device.set_temp(original_set_target_temp)
+                           self._use_HA_for_hysteresis_sample_count = 0
+                           _LOGGER.warning("HA force thermostate state change in heating / Current_temp %s Current_target temp %s, HA changing Set Temp to %s",self._room_temp,original_set_target_temp,newtarget_temp)
+                           #Force heating back to orignal set temp.
+                           try:
+                                time.sleep(4)
+                                self._broadlink_hysen_climate_device.set_temp(original_set_target_temp)
+                                _LOGGER.warning("HA force thermostate state change in heating Set Temp to Orignal %s",original_set_target_temp)
+                           except Exception as error:
+                                try:                                
+                                    time.sleep(4)
+                                    self._broadlink_hysen_climate_device.set_temp(original_set_target_temp)
+                                except Exception as error:
+                                       _LOGGER.error("HA force thermostate state change in heating failed to set back to value after retry :%s, :%s",original_set_target_temp,error)
                         #####################################################################
 
                 elif self._power_state == HYSEN_POWEROFF:
