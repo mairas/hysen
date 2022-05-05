@@ -25,7 +25,7 @@ Author: Mark Carter
 
 #*****************************************************************************************************************************
 DEFAULT_NAME = 'Hysen Thermostat Controller'
-VERSION = '2.2.3'
+VERSION = '2.3.0'
 
 
 import asyncio
@@ -51,29 +51,26 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT, 
     CONF_NAME, CONF_HOST, 
     CONF_MAC, CONF_TIMEOUT, 
-    CONF_CUSTOMIZE, 
-    STATE_UNAVAILABLE)
+    CONF_CUSTOMIZE)
 
 from homeassistant.components.climate.const import (
     DOMAIN,
-    SUPPORT_TARGET_TEMPERATURE,
-    SUPPORT_PRESET_MODE, 
-    HVAC_MODE_OFF, 
-    HVAC_MODE_HEAT, 
-    HVAC_MODE_AUTO, 
+    ATTR_PRESET_MODE, 
     PRESET_AWAY,
     PRESET_NONE,
-    CURRENT_HVAC_HEAT, 
-    CURRENT_HVAC_IDLE)
+    ClimateEntityFeature,    
+    HVACAction,
+    HVACMode)
 
 from homeassistant.helpers.entity import async_generate_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
-SUPPORT_FLAGS = SUPPORT_PRESET_MODE | SUPPORT_TARGET_TEMPERATURE
-SUPPORT_HVAC = [HVAC_MODE_AUTO, HVAC_MODE_HEAT, HVAC_MODE_OFF]
+SUPPORT_FEATURES = ClimateEntityFeature.PRESET_MODE | ClimateEntityFeature.TARGET_TEMPERATURE
+SUPPORT_OPERATION_MODES = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
 SUPPORT_PRESET = [PRESET_NONE, PRESET_AWAY]
-DEFAULT_OPERATIONS_LIST = [HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO]
+SUPPORT_ACTIONS = [HVACAction.HEATING,HVACAction.IDLE] #HVACAction.OFF
+
 
 MIN_TIME_BETWEEN_SCANS = timedelta(seconds=30)
 MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(milliseconds=100)
@@ -193,8 +190,8 @@ DEFAULT_CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY = False
 
 DEAFULT_CONF_USE_HA_FOR_HYSTERSIS = False
 DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT_HIGH = 3
-DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT_LOW = 10
-DEAFULT_CONF_USE_HA_FOR_HYSTERSIS_BAIS_HIGH = 0.0
+DEAFULT_HA_FOR_HYSTERSIS_SAMPLE_COUNT_LOW = 5
+DEAFULT_CONF_USE_HA_FOR_HYSTERSIS_BAIS_HIGH = 0.5
 DEAFULT_CONF_USE_HA_FOR_HYSTERSIS_BAIS_LOW = 0.5
 
 CONF_DEVICES = 'devices'
@@ -260,7 +257,7 @@ async def devices_from_config(domain_config, hass):
                 _LOGGER.error("Failed resolve DNS name to IP for Broadlink Hysen Climate device:%s, error:%s",dns_name,error)
 
         # Get Operation parameters for Hysen Climate device.
-        operation_list = DEFAULT_OPERATIONS_LIST
+        operation_list = SUPPORT_OPERATION_MODES
         target_temp_default = config.get(CONF_TARGET_TEMP)
         target_temp_step = config.get(CONF_TARGET_TEMP_STEP)
         sync_clock_time_per_day = config.get(CONF_SYNC_CLOCK_TIME_ONCE_PER_DAY)
@@ -422,24 +419,24 @@ async def async_setup_platform(hass, config, async_add_devices, discovery_info=N
     #Example sfor service call (hysen_set_heatingschedule)
     """
     service: climate.hysen_set_timeschedule
-    data:
     entity_id: climate.house_thermostat
-    week_period1_start: 05:30 
-    week_period1_temp:  18.0
-    week_period2_start: 07:00
-    week_period2_temp: 20.5
-    week_period3_start: 11:00
-    week_period3_temp: 20.5
-    week_period4_start: 14:00
-    week_period4_temp: 20.5
-    week_period5_start: 17:00
-    week_period5_temp: 20.5
-    week_period6_start: 22:30
-    week_period6_temp: 16.0
-    weekend_period1_start: 7:30
-    weekend_period1_temp: 20.5
-    weekend_period2_start: 22:30
-    weekend_period2_temp: 16.0
+    data:
+         week_period1_start: '07:30'
+         week_period1_temp: 20.0
+         week_period2_start: '07:31'
+         week_period2_temp: 20.0
+         week_period3_start: '07:32'
+         week_period3_temp: 20.0
+         week_period4_start: '07:33'
+         week_period4_temp: 20
+         week_period5_start: '07:34'
+         week_period5_temp: 20.0
+         week_period6_start: '20:00'
+         week_period6_temp: 10.0
+         weekend_period1_start: '8:00'
+         weekend_period1_temp: 20.0
+         weekend_period2_start: '20:00'
+         weekend_period2_temp: 10.0
     """
     async def async_hysen_set_time_schedule(thermostat,service):
                entity_id = service.data.get(ATTR_ENTITY_ID)
@@ -584,11 +581,11 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
 
         self._power_state = HYSEN_POWEROFF
         self._auto_state = HYSEN_MANUALMODE
-        self._current_operation = STATE_UNAVAILABLE
+        self._current_operation = HVACMode.OFF
         self._operation_list = operation_list
 
         self._away_mode = False
-        self._awaymodeLastState = HVAC_MODE_OFF
+        self._awaymodeLastState = HVACMode.OFF
 
         self._is_heating_active = None
         self._auto_override = None
@@ -677,12 +674,12 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
     @property
     def hvac_modes(self):
         """Return the list of available operation modes."""
-        return SUPPORT_HVAC
+        return SUPPORT_OPERATION_MODES
 
     @property
     def supported_features(self):
         """Return the list of supported features."""
-        return SUPPORT_FLAGS
+        return SUPPORT_FEATURES
 
     @property
     def preset_mode(self):
@@ -703,9 +700,9 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
     def hvac_action(self):
         """Return current HVAC action."""
         if self._is_heating_active == 1:
-            return CURRENT_HVAC_HEAT
+            return SUPPORT_ACTIONS[0] #HEATING
         else:
-            return CURRENT_HVAC_IDLE
+            return SUPPORT_ACTIONS[1] #IDLE
 
     @property
     def extra_state_attributes(self):
@@ -766,7 +763,7 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
             if self._away_mode == False:
                 self._awaymodeLastState = self._current_operation
                 self._away_mode = True
-                self.set_operation_mode_command(HVAC_MODE_OFF)
+                self.set_operation_mode_command(HVACMode.OFF)
         elif preset_mode == PRESET_NONE:
             if self._away_mode == True:
                 self._away_mode = False
@@ -774,15 +771,15 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
 
 ######################################################################################################################################
     def set_operation_mode_command(self, operation_mode):
-        if operation_mode == HVAC_MODE_HEAT:
+        if operation_mode == HVACMode.HEAT:
             if self._power_state == HYSEN_POWEROFF:
                 self.send_power_command(HYSEN_POWERON,self._remote_lock)
             self.send_mode_command(HYSEN_MANUALMODE, self._loop_mode,self._sensor_mode)
-        elif operation_mode == HVAC_MODE_AUTO:
+        elif operation_mode == HVACMode.AUTO:
             if self._power_state == HYSEN_POWEROFF:
                 self.send_power_command(HYSEN_POWERON,self._remote_lock)
             self.send_mode_command(HYSEN_AUTOMODE, self._loop_mode,self._sensor_mode)
-        elif operation_mode == HVAC_MODE_OFF:
+        elif operation_mode == HVACMode.OFF:
                   self.send_power_command(HYSEN_POWEROFF,self._remote_lock)
         else:
             _LOGGER.error("Unknown command for Broadlink Hysen Climate device: %s",self.entity_id)
@@ -833,7 +830,7 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
         poweronmem = self._poweron_mem if poweronmem is None else poweronmem
 
        # Fix for native broadlink.py set_advanced breaking loopmode and operation_mode
-        if self._current_operation == HVAC_MODE_HEAT:
+        if self._current_operation == HVACMode.HEAT:
             current_mode = HYSEN_MANUALMODE
         else:
             current_mode = HYSEN_AUTOMODE
@@ -914,9 +911,9 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
                 
                 if self._power_state == HYSEN_POWERON:
                     if self._auto_state == HYSEN_MANUALMODE:
-                        self._current_operation = HVAC_MODE_HEAT
+                        self._current_operation = HVACMode.HEAT
                     else:
-                        self._current_operation = HVAC_MODE_AUTO
+                        self._current_operation = HVACMode.AUTO
                     
                     ##################################################################
                     #Add HA hysteresis control
@@ -965,20 +962,20 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
 
                 elif self._power_state == HYSEN_POWEROFF:
                      self._target_temperature = self._min_temp
-                     self._current_operation = HVAC_MODE_OFF
+                     self._current_operation = HVACMode.OFF
                 else:
-                     self._current_operation = STATE_UNAVAILABLE
+                     self._current_operation = HVACMode.OFF
                      self._available = False
             else:
                 _LOGGER.warning("Failed to get Update from Broadlink Hysen Climate device: %s, GetFullStatus returned None!",self.entity_id)
-                self._current_operation = STATE_UNAVAILABLE
+                self._current_operation = HVACMode.OFF
                 self._available = False
 
         except Exception as error:
             self._update_error_count = self._update_error_count + 1
             if (self._update_error_count>=UPDATE_RETRY_BEFORE_ERROR):
                 _LOGGER.error("Failed to get Data from Broadlink Hysen Climate device more than %s times :%s,:%s",UPDATE_RETRY_BEFORE_ERROR,self.entity_id,error)
-                self._current_operation = STATE_UNAVAILABLE
+                self._current_operation = HVACMode.OFF
                 self._room_temp = 0
                 self._external_temp = 0
                 self._available = False
