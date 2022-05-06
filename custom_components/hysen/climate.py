@@ -25,7 +25,7 @@ Author: Mark Carter
 
 #*****************************************************************************************************************************
 DEFAULT_NAME = 'Hysen Thermostat Controller'
-VERSION = '2.3.0'
+VERSION = '2.3.1'
 
 
 import asyncio
@@ -587,9 +587,9 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
         self._away_mode = False
         self._awaymodeLastState = HVACMode.OFF
 
-        self._is_heating_active = None
-        self._auto_override = None
-        self._remote_lock = None
+        self._is_heating_active = 0
+        self._auto_override = 0
+        self._remote_lock = 0
 
         self._loop_mode = DEFAULT_LOOPMODE
         self._sensor_mode = DEFAULT_SENSORMODE
@@ -601,19 +601,21 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
 
         self._external_sensor_temprange = DEFAULT_EXTERNALSENSORTEMPRANGE
         self._deadzone_sensor_temprange = DEFAULT_DEADZONESENSORTEMPRANGE
-        self._room_temp = None
-        self._external_temp = None
+        self._room_temp = 0
+        self._external_temp = 0
 
-        self._clock_hour = None
-        self._clock_min = None
-        self._clock_sec = None
-        self._day_of_week = None
+        self._clock_hour = 0
+        self._clock_min = 0
+        self._clock_sec = 0
+        self._day_of_week = 1
 
         self._week_day = ""
         self._week_end = ""
         
         self._update_error_count = 0
+        
         self._available = True 
+        self.update(no_throttle=True)
 
 ######################################################################################################################################
 ######################################################################################################################################
@@ -990,7 +992,7 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
                 currentDT = datetime.datetime.now()
                 updateDT = datetime.time(hour=3)
                 if currentDT.time() > updateDT: #Set am 3am
-                    self.set_time(currentDT.hour, currentDT.minute, currentDT.second, now_day_of_the_week)
+                    self._broadlink_hysen_climate_device.set_time(currentDT.hour, currentDT.minute, currentDT.second, now_day_of_the_week)
                     self._current_day_of_week = now_day_of_the_week
                     _LOGGER.info("Broadlink Hysen Climate device:%s Clock Sync Success...",self.entity_id)
         except Exception as error:
@@ -1519,4 +1521,3 @@ def broadlink_hysen_climate_device_setup(ssid, password, security_mode):
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.sendto(payload, ('255.255.255.255', 80))
     sock.close()
-
