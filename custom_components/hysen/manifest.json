@@ -1,7 +1,7 @@
 {
   "domain": "hysen",
   "name": "Hysen Thermostat Controller",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "config_flow": false,
   "documentation": "https://github.com/mairas/hysen",
   "issue_tracker": "https://github.com/mairas/hysen/issues",
