@@ -66,7 +66,7 @@ from homeassistant.helpers.entity import async_generate_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
-SUPPORT_FEATURES = ClimateEntityFeature.PRESET_MODE | ClimateEntityFeature.TARGET_TEMPERATURE
+SUPPORT_FEATURES = ClimateEntityFeature.PRESET_MODE | ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_OFF | ClimateEntityFeature.TURN_ON
 SUPPORT_OPERATION_MODES = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
 SUPPORT_PRESET = [PRESET_NONE, PRESET_AWAY]
 SUPPORT_ACTIONS = [HVACAction.HEATING,HVACAction.IDLE] #HVACAction.OFF
@@ -556,6 +556,7 @@ class HASS_Hysen_Climate_Device(ClimateEntity):
                  target_temp_step, operation_list,sync_clock_time_per_day,get_current_temp_from_sensor_override,use_HA_for_hysteresis,HA_hysteresis_bais_high,HA_hysteresis_bais_low,HA_hysteresis_sample_count_target_low,HA_hysteresis_sample_count_target_high):
         """Initialize the Broadlink Hysen Climate device."""
         self.entity_id = entity_id
+        self._enable_turn_on_off_backwards_compatibility = False          
         self._hass = hass
         self._name = name
         self._HysenData = []
