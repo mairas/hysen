@@ -25,7 +25,7 @@ Author: Mark Carter
 
 #*****************************************************************************************************************************
 DEFAULT_NAME = 'Hysen Thermostat Controller'
-VERSION = '2.3.1'
+VERSION = '2.3.2'
 
 
 import asyncio
